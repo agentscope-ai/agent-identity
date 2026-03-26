@@ -1439,3 +1439,51 @@ This enables multi-agent workflows where a parent agent spawns specialized sub-a
 The current design handles multi-agent workflows through the `spawned_by` metadata field — the identity layer records the relationship, but the principal is always the human or org who created the root agent. This keeps the IdP simple while preserving audit trails.
 
 Agent-as-principal should be considered when real use cases demonstrate that the `spawned_by` approach is insufficient — when sub-agents genuinely need independent identities with their own key management, separate from their parent's principal. Adding `"type": "agent"` to the principal field is backwards-compatible and can be introduced in a future version of the spec.
+
+### IdP Migration and Identity Recovery
+
+If an IdP deletes an agent or goes offline, the agent_id (`aip:<provider>:<id>`) becomes unresolvable. However, the agent's private key remains on disk — the IdP never held it. This creates a recovery path:
+
+1. **Re-register with another IdP** — the agent registers the same public key with a new provider, getting a new agent_id (e.g., `aip:github.com:agent_xyz`). The agent can prove continuity by signing a linkage statement with the shared key (Section 6.6).
+
+2. **Fall back to local mode** — the agent registers its public key directly with hubs. No IdP involved. Identity is hub-local but functional.
+
+3. **Re-register with the same IdP** — if the IdP allows it, the agent gets a new agent_id under the same provider with the same key.
+
+Open design questions for a future spec version:
+
+- **Activity history transfer** — the Activity Tracker holds reports under the old agent_id. Should it accept linkage proofs and merge history into the new identity? What prevents abuse (claiming someone else's history)?
+- **Hub notification** — should there be a mechanism for the new IdP to announce "this agent was previously known as X"? Or do hubs discover this through linkage proofs on demand?
+- **Transfer attestation** — if the old IdP is cooperative (e.g., shutting down gracefully), it could sign a transfer attestation: "agent_abc is migrating to provider Y." This is stronger than a self-signed linkage proof because it carries the old IdP's endorsement.
+- **agent_id stability** — the current format bakes the provider domain into the agent_id. An alternative would be a provider-independent identifier (e.g., based on the public key hash), but this sacrifices the ability to resolve the IdP from the agent_id alone.
+
+This is a key differentiator vs platform-owned identity models (Ping Identity, Microsoft Entra): in AIP, the agent survives its provider. The private key is the root of identity, not the IdP registration.
+
+### Agent Metadata Schema
+
+The current spec carries minimal agent metadata in the JWT (`agent_name`, `model_info`, `capabilities`). A richer metadata model is needed for discovery, trust assessment, and compliance. This should be stored at registration time and queryable via `GET /aip/agents/{agent_id}`, not carried in every token.
+
+Candidate metadata fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | What this agent does ("DeFi arbitrage trading bot") |
+| `version` | string | Agent version (semver) |
+| `persona` | string | Behavioral description ("aggressive, high-frequency") |
+| `framework` | object | Runtime framework (`{name: "CoPaw", version: "1.4.0"}`) |
+| `model` | object | Full model info (`{provider, model_id, version, modalities}`) |
+| `languages` | string[] | Supported languages (`["en", "zh"]`) |
+| `tags` | string[] | Searchable categories (`["trading", "defi"]`) |
+| `data_sources` | string[] | External data the agent accesses |
+| `homepage` | string | URL for more info about this agent |
+| `contact` | string | How to reach the principal about this agent |
+| `license` | string | Usage terms (open source, commercial, etc.) |
+| `created_at` | ISO 8601 | When the identity was created |
+| `updated_at` | ISO 8601 | Last metadata update |
+
+Design considerations:
+
+- **JWT stays lean** — only `agent_name`, `agent_version`, and `model_info` summary travel in the token. Full metadata is fetched on demand.
+- **Metadata is mutable** — the principal can update description, version, tags without rotating keys or changing the agent_id.
+- **Schema is extensible** — custom fields should use reverse-domain notation (`"com.copaw.strategy_type": "momentum"`).
+- **Privacy** — some metadata (data_sources, model details) may be sensitive. The agent should control what is publicly queryable vs principal-only.

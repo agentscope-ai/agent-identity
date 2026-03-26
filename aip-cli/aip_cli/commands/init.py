@@ -32,15 +32,19 @@ def init(
         if not overwrite:
             raise typer.Abort()
 
-    # Register with IdP
-    url = f"{provider.rstrip('/')}/aip/auth/register"
-    payload = {
-        "type": type,
-        "name": name,
-        "external_id": name,
-    }
+    # Try login first, then register if not found
+    base = provider.rstrip("/")
     try:
-        resp = httpx.post(url, json=payload)
+        resp = httpx.post(
+            f"{base}/aip/auth/login",
+            json={"external_id": name},
+        )
+        if resp.status_code == 404:
+            # New principal — register
+            resp = httpx.post(
+                f"{base}/aip/auth/register",
+                json={"type": type, "name": name, "external_id": name},
+            )
         resp.raise_for_status()
     except httpx.HTTPError as e:
         typer.echo(f"Error contacting IdP: {e}", err=True)

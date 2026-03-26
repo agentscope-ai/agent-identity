@@ -44,11 +44,11 @@ async def register_principal(body: RegisterPrincipalRequest, request: Request):
         raise HTTPException(400, "type must be 'human' or 'org'")
 
     async with async_session() as session:
-        existing = await session.execute(
+        existing_result = await session.execute(
             select(Principal).where(Principal.external_id == body.external_id)
         )
-        if existing.scalar_one_or_none():
-            raise HTTPException(409, "Principal with this external_id already exists")
+        if existing_result.scalar_one_or_none():
+            raise HTTPException(409, "Principal already exists. Use /aip/auth/login instead.")
 
         principal_id = str(uuid.uuid4())
         principal = Principal(

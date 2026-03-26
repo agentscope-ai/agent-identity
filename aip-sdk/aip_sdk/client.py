@@ -46,7 +46,7 @@ class AIPClient:
                 "agent_id": self._identity.agent_id,
                 "kid": self._identity.kid,
                 "audience": audience,
-                "timestamp": timestamp,
+                "timestamp": str(timestamp),
                 "signature": signature,
             },
         )

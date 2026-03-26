@@ -38,9 +38,11 @@ class AIPIdentity:
         ``private_key``.  If *None*, the first directory found under
         ``~/.aip/agents/`` is used.
         """
+        aip_home = Path(os.environ.get("AIP_HOME", Path.home() / ".aip"))
+        base = aip_home / "agents"
+
         if agent_dir is None:
-            base = Path.home() / ".aip" / "agents"
-            dirs = sorted(base.iterdir())
+            dirs = sorted(base.iterdir()) if base.exists() else []
             if not dirs:
                 raise FileNotFoundError(
                     f"No agent directories found under {base}"
@@ -48,6 +50,9 @@ class AIPIdentity:
             agent_dir = dirs[0]
         else:
             agent_dir = Path(agent_dir)
+            # If it's a plain name (not a path), resolve under ~/.aip/agents/
+            if not agent_dir.is_absolute() and not agent_dir.exists():
+                agent_dir = base / agent_dir
 
         config_path = agent_dir / "agent.json"
         key_path = agent_dir / "private_key"

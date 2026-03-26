@@ -15,7 +15,7 @@ pip install -e aip-verify/
 
 ```
 cd aip-idp
-uvicorn app.main:app --port 8000
+uvicorn aip_idp.main:app --port 8000
 ```
 
 ### 3. Start the demo hub
