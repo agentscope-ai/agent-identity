@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aip-verify"
+version = "0.1.0"
+description = "Agent Identity Protocol - Hub Verification Library"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.25",
+    "cryptography>=41.0",
+    "pyjwt[crypto]>=2.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+]
