@@ -8,7 +8,7 @@ AIP 是一个开放协议，为 AI Agent 提供跨平台的身份认证、活动
 
 ## 为什么需要 AIP？
 
-今天的 AI Agent 是"黑户"。你的 Agent 在 DojoZero 上赢了100场，换个平台？没人认识你，战绩清零，从头开始。
+今天的 AI Agent 是"黑户"。你的 Agent 在某个平台上赢了100场，换个平台？没人认识你，战绩清零，从头开始。
 
 每个平台各搞一套账号体系——API Key、邮箱注册、推文验证……Agent 用十个平台就得管十套凭证。
 
@@ -33,24 +33,18 @@ aip:<提供商域名>:<唯一标识>
 
 ### 认证流程
 
-```
-Agent                          IdP                           平台 (Hub)
-  │                             │                               │
-  │  1. 用私钥签名请求           │                               │
-  │  ──────────────────────────>│                               │
-  │                             │                               │
-  │  2. IdP 验证签名，           │                               │
-  │     签发短期 JWT (1-4小时)   │                               │
-  │  <──────────────────────────│                               │
-  │                             │                               │
-  │  3. 带着 JWT 访问平台        │                               │
-  │  ──────────────────────────────────────────────────────────>│
-  │                             │                               │
-  │                             │  4. 平台用 IdP 公钥本地验签     │
-  │                             │     (不用回调 IdP)             │
-  │                             │                               │
-  │  5. 正常响应                 │                               │
-  │  <──────────────────────────────────────────────────────────│
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant IdP as 身份提供商 (IdP)
+    participant Hub as 平台 (Hub)
+
+    Agent->>IdP: 1. 用私钥签名请求
+    IdP->>IdP: 验证签名
+    IdP-->>Agent: 2. 签发短期 JWT (1-4小时)
+    Agent->>Hub: 3. 带着 JWT 访问平台
+    Hub->>Hub: 4. 用 IdP 公钥本地验签（不用回调 IdP）
+    Hub-->>Agent: 5. 正常响应
 ```
 
 平台验签是**本地完成**的——提前缓存 IdP 公钥，验签只是一个本地计算。IdP 挂了不影响已签发 token 的验证。
@@ -61,7 +55,7 @@ Agent                          IdP                           平台 (Hub)
 {
   "iss": "https://copaw.ai",
   "sub": "aip:copaw.ai:agent_7x8k2m",
-  "aud": "https://dojozero.example.com",
+  "aud": "https://hub.example.com",
   "exp": 1711328400,
   "aip_version": "1.0",
   "agent_name": "shark",
@@ -77,16 +71,13 @@ Agent                          IdP                           平台 (Hub)
 
 ## 协议分层
 
-```
-┌─────────────────────────────────────────┐
-│  Layer 3: 信任与声誉                      │  信任评分、跨平台分析
-├─────────────────────────────────────────┤
-│  Layer 2: 活动证明                        │  平台签名的活动报告
-├─────────────────────────────────────────┤
-│  Layer 1: 授权与声明                      │  能力、范围、合规
-├─────────────────────────────────────────┤
-│  Layer 0: 密码学身份                      │  密钥、Token、认证
-└─────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    L3["Layer 3: 信任与声誉 — 信任评分、跨平台分析"]
+    L2["Layer 2: 活动证明 — 平台签名的活动报告"]
+    L1["Layer 1: 授权与声明 — 能力、范围、合规"]
+    L0["Layer 0: 密码学身份 — 密钥、Token、认证"]
 ```
 
 每层独立，可以逐层采用。最小可用集是 Layer 0。
@@ -113,12 +104,11 @@ Agent                          IdP                           平台 (Hub)
 
 密钥属于 Agent，不属于 IdP。同一把公钥可以注册到多个提供商：
 
-```
-                    ┌─── CoPaw    → aip:copaw.ai:agent_abc
-                    │
-Agent（一把密钥）   ├─── GitHub   → aip:github.com:agent_xyz
-                    │
-                    └─── 直接注册到平台（本地模式）
+```mermaid
+graph LR
+    A["Agent（一把密钥）"] --> C["CoPaw → aip:copaw.ai:agent_abc"]
+    A --> G["GitHub → aip:github.com:agent_xyz"]
+    A --> L["直接注册到平台（本地模式）"]
 ```
 
 要证明多个身份是同一个 Agent？用共享私钥签一个 linkage 声明，任何人都能验证。
@@ -139,6 +129,17 @@ Agent（一把密钥）   ├─── GitHub   → aip:github.com:agent_xyz
 
 ### Agent 间认证
 
+```mermaid
+sequenceDiagram
+    participant A1 as Agent1 (CoPaw)
+    participant A2 as Agent2 (GitHub)
+
+    A1->>A2: 交换 token
+    A2->>A2: 读 iss → copaw.ai<br/>拿 JWKS 验签
+    A1->>A1: 读 iss → github.com<br/>拿 JWKS 验签
+    Note over A1,A2: 互验完成，无需中央权威
+```
+
 两个来自不同 IdP 的 Agent 也能互验身份——各自读对方 JWT 的 `iss`，去对应 IdP 拿公钥验签。没有中央权威，各自维护自己的可信提供商列表。
 
 ---
@@ -150,12 +151,20 @@ Agent（一把密钥）   ├─── GitHub   → aip:github.com:agent_xyz
 ```json
 {
   "agent_id": "aip:copaw.ai:agent_7x8k2m",
-  "service_id": "https://dojozero.example.com",
+  "service_id": "https://hub.example.com",
   "activity_type": "prediction_market",
   "summary": { "games_played": 3, "pnl": 150.0 },
   "outcome": "completed",
   "service_signature": "<平台私钥签名>"
 }
+```
+
+```mermaid
+graph LR
+    Hub["平台 (Hub)"] -->|签名活动报告| AT["活动追踪器"]
+    AT -->|信任查询| Hub
+    IdP["IdP"] -.->|"管身份（小而稳）"| IdP
+    AT -.->|"管活动（大流量）"| AT
 ```
 
 活动追踪器与 IdP 分开运行。IdP 管"你是谁"（小而稳），活动追踪器管"你做过什么"（大流量，独立扩展）。
@@ -180,25 +189,59 @@ Authorization: AIP <自己的 token>
 - **个人主体**——开发者，通过 GitHub OAuth 等验证
 - **组织主体**——公司/团队，通过域名验证。人来人走，Agent 不受影响
 
-问责链条：`动作 → Agent → 主体（人或组织）→ 司法管辖区`。总有人兜底。
+```mermaid
+graph LR
+    Action["动作"] --> Agent["Agent"] --> Principal["主体（人或组织）"] --> Jurisdiction["司法管辖区"]
+```
+
+问责链条：总有人兜底。
 
 ---
 
 ## 项目结构
 
 ```
-design/
-  ├── 2026-03-11-agent-identity.md              # 初始设计思考
-  ├── 2026-03-25-agent-identity-protocol.en.md   # AIP 协议规格（英文）
-  ├── 2026-03-25-agent-identity-protocol.zh.md   # AIP 协议规格（中文）
-  └── 2026-03-25-agent-identity-commercialization.md  # 商业化策略
+agent-identity/
+├── design/                          # 协议设计文档
+│   ├── 2026-03-11-agent-identity.md
+│   ├── 2026-03-25-agent-identity-protocol.en.md
+│   ├── 2026-03-25-agent-identity-protocol.zh.md
+│   └── 2026-03-25-agent-identity-commercialization.md
+├── aip-idp/                         # 参考 IdP 实现 (FastAPI)
+├── aip-cli/                         # CLI 工具 (aip init / aip agent create)
+├── aip-sdk/                         # Agent 客户端 SDK
+├── aip-verify/                      # Hub 验证库
+└── examples/                        # 端到端演示
+```
+
+---
+
+## 快速体验
+
+```bash
+# 安装
+pip install aip-idp/ aip-cli/ aip-sdk/ aip-verify/
+
+# 启动 IdP
+cd aip-idp && uvicorn aip_idp.main:app --port 8000
+
+# 注册身份、创建 Agent
+aip init --name alice --provider http://localhost:8000
+aip agent create --name shark
+
+# 启动示例 Hub
+cd examples/demo-hub && uvicorn hub:app --port 8001
+
+# 运行示例 Agent
+cd examples/demo-agent && python agent.py
+# → Hub says: {'agent_name': 'shark', 'message': 'Welcome, shark!'}
 ```
 
 ---
 
 ## 状态
 
-**Draft** — 协议规格设计中。Layer 0 基本就绪，征求反馈。
+**Draft** — 协议规格设计中。Layer 0 参考实现已完成，征求反馈。
 
 ---
 

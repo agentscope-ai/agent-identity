@@ -38,20 +38,11 @@ This is the HTTP-without-DNS era for agents. Everyone can build agents, but ther
 
 The protocol defines three roles and the interactions between them:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                Agent Identity Protocol (AIP)             │
-│                                                         │
-│  ┌───────────┐    ┌──────────────────┐    ┌───────────┐ │
-│  │   Agent    │    │ Identity Provider│    │  Service   │ │
-│  │  (Client)  │◄──►│    (IdP)         │◄──►│  (Hub)    │ │
-│  └───────────┘    └──────────────────┘    └───────────┘ │
-│                                                         │
-│  Builds/runs      Registers agents,      Verifies       │
-│  agents           issues tokens          tokens,        │
-│                                          reports        │
-│                                          activity       │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph LR
+    Agent["Agent (Client)<br/>Holds private key,<br/>authenticates with IdP"] <--> IdP["Identity Provider (IdP)<br/>Registers agents,<br/>issues tokens"]
+    IdP <--> Hub["Service (Hub)<br/>Verifies tokens,<br/>reports activity"]
+    Agent -. "presents tokens" .-> Hub
 ```
 
 **Agent (Client)** — The software entity. Holds a private key, authenticates with an Identity Provider, presents tokens to services.
@@ -92,15 +83,14 @@ Principals are responsible for:
 
 Principals are **not** in the loop at runtime. Once an agent is deployed with its private key, it operates autonomously.
 
-```
-Human principal (GitHub: @alice)
-  ├─ Agent: "shark"         aip:alibaba:agent_7x8k2m
-  ├─ Agent: "experimental"  aip:alibaba:agent_2w6j8r
+```mermaid
+graph TD
+    Alice["👤 Human principal<br/>GitHub: @alice"] --> Shark["🤖 shark<br/>aip:alibaba:agent_7x8k2m"]
+    Alice --> Exp["🤖 experimental<br/>aip:alibaba:agent_2w6j8r"]
 
-Org principal (Acme Corp, verified domain)
-  ├─ Admins: @alice, @bob, @carol
-  ├─ Agent: "acme-trader"   aip:alibaba:agent_9p3n5q
-  └─ Agent: "acme-monitor"  aip:alibaba:agent_4k7m1w
+    Acme["🏢 Org principal<br/>Acme Corp (verified domain)"] --> Trader["🤖 acme-trader<br/>aip:alibaba:agent_9p3n5q"]
+    Acme --> Monitor["🤖 acme-monitor<br/>aip:alibaba:agent_4k7m1w"]
+    Acme -.- Admins["Admins: @alice, @bob, @carol"]
 ```
 
 ### 4.2 Agent
@@ -118,16 +108,10 @@ Each agent has:
 
 Every agent identity carries a provenance chain:
 
-```
-Action
-  → Agent (aip:alibaba:agent_7x8k2m)
-    → Principal: human (@alice on GitHub)
-      → Jurisdiction (US, CN, etc., optional)
-
-Action
-  → Agent (aip:alibaba:agent_9p3n5q)
-    → Principal: org (Acme Corp)
-      → Jurisdiction (US, optional)
+```mermaid
+graph LR
+    A1["Action"] --> Ag1["Agent<br/>aip:alibaba:agent_7x8k2m"] --> P1["Principal: human<br/>@alice on GitHub"] --> J1["Jurisdiction<br/>(US, CN, etc.)"]
+    A2["Action"] --> Ag2["Agent<br/>aip:alibaba:agent_9p3n5q"] --> P2["Principal: org<br/>Acme Corp"] --> J2["Jurisdiction<br/>(US)"]
 ```
 
 This chain is what regulators need. When an agent causes harm, the chain provides a clear path from action to accountable party. The principal always resolves to a human or organization — there is always a responsible party.
@@ -153,16 +137,13 @@ The provider domain identifies which IdP issued the identity. Services can resol
 
 The protocol is organized in four layers. Each layer builds on the one below. Implementations may adopt layers incrementally.
 
-```
-┌─────────────────────────────────────────┐
-│  Layer 3: Trust & Reputation            │  Derived scores, cross-hub analytics
-├─────────────────────────────────────────┤
-│  Layer 2: Activity Attestation          │  Signed activity reports from hubs
-├─────────────────────────────────────────┤
-│  Layer 1: Authorization & Claims        │  Capabilities, scopes, constraints
-├─────────────────────────────────────────┤
-│  Layer 0: Cryptographic Identity        │  Keys, tokens, authentication
-└─────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    L3["Layer 3: Trust & Reputation — Derived scores, cross-hub analytics"]
+    L2["Layer 2: Activity Attestation — Signed activity reports from hubs"]
+    L1["Layer 1: Authorization & Claims — Capabilities, scopes, constraints"]
+    L0["Layer 0: Cryptographic Identity — Keys, tokens, authentication"]
 ```
 
 ### Layer 0: Cryptographic Identity
@@ -286,33 +267,19 @@ Key design decisions:
 
 ### 6.3 Authentication Flow
 
-```
-Agent                          IdP                           Service (Hub)
-  │                             │                               │
-  │  1. POST /aip/token         │                               │
-  │     {agent_id, timestamp,   │                               │
-  │      audience, signature}   │                               │
-  │  ──────────────────────────>│                               │
-  │                             │                               │
-  │  2. Verify signature        │                               │
-  │     against registered      │                               │
-  │     public key              │                               │
-  │                             │                               │
-  │  3. {token: "eyJ..."}       │                               │
-  │  <──────────────────────────│                               │
-  │                             │                               │
-  │  4. API request             │                               │
-  │     Authorization: AIP eyJ..│                               │
-  │  ──────────────────────────────────────────────────────────>│
-  │                             │                               │
-  │                             │  5. Verify JWT signature      │
-  │                             │     against IdP public key    │
-  │                             │     (cached from discovery)   │
-  │                             │                               │
-  │                             │  6. Check aud, exp, claims    │
-  │                             │                               │
-  │  7. API response            │                               │
-  │  <──────────────────────────────────────────────────────────│
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant IdP
+    participant Hub as Service (Hub)
+
+    Agent->>IdP: 1. POST /aip/token<br/>{agent_id, timestamp, audience, signature}
+    IdP->>IdP: 2. Verify signature against registered public key
+    IdP-->>Agent: 3. {token: "eyJ..."}
+    Agent->>Hub: 4. API request<br/>Authorization: AIP eyJ...
+    Hub->>Hub: 5. Verify JWT signature against IdP public key (cached)
+    Hub->>Hub: 6. Check aud, exp, claims
+    Hub-->>Agent: 7. API response
 ```
 
 **Step 1 — Token Request:**
@@ -405,12 +372,11 @@ Anyone can still run an IdP without joining the Trust Program. The protocol rema
 
 **The keypair belongs to the agent, not the provider.** An agent generates one Ed25519 keypair and registers the same public key with multiple IdPs. The IdP is a registry and token issuer — it does not generate or control the agent's keys.
 
-```
-                    ┌─── CoPaw    → aip:copaw.ai:agent_abc    ─── JWT signed by CoPaw
-                    │
-Agent (one keypair) ├─── GitHub   → aip:github.com:agent_xyz  ─── JWT signed by GitHub
-                    │
-                    └─── Hub directly (local mode)             ─── raw signature, no JWT
+```mermaid
+graph LR
+    Agent["Agent<br/>(one keypair)"] --> CoPaw["CoPaw<br/>aip:copaw.ai:agent_abc<br/>JWT signed by CoPaw"]
+    Agent --> GitHub["GitHub<br/>aip:github.com:agent_xyz<br/>JWT signed by GitHub"]
+    Agent --> Local["Hub directly (local mode)<br/>raw signature, no JWT"]
 ```
 
 Three different identities on paper, but provably the same agent — because only one entity holds the private key that matches all three registrations.
@@ -437,23 +403,15 @@ Any verifier can confirm: the signature matches the public key registered at bot
 
 When a hub does not accept any of the agent's IdP providers, or when no IdP is available, agents can authenticate directly with the hub using raw public key registration. This is the **universal fallback** — the agent equivalent of email + password for humans.
 
-```
-Agent                              Hub
-  │                                 │
-  │  1. POST /aip/local/register    │
-  │     {public_key, name, ...}     │
-  │  ──────────────────────────────>│
-  │                                 │
-  │  2. {hub_agent_id: "hub123"}    │
-  │  <──────────────────────────────│
-  │                                 │
-  │  3. API request                 │
-  │     {timestamp, signature}      │
-  │  ──────────────────────────────>│
-  │                                 │
-  │  4. Verify sig against          │
-  │     stored public key           │
-  │                                 │
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Hub
+
+    Agent->>Hub: 1. POST /aip/local/register<br/>{public_key, name, ...}
+    Hub-->>Agent: 2. {hub_agent_id: "hub123"}
+    Agent->>Hub: 3. API request<br/>{timestamp, signature}
+    Hub->>Hub: 4. Verify sig against stored public key
 ```
 
 This is essentially SSH `authorized_keys` — the hub stores the agent's public key directly.
@@ -491,23 +449,16 @@ Agents can verify each other's identity using the same mechanism used for agent-
 
 When two agents from different IdPs interact (e.g., on a shared hub, or in a multi-agent workflow):
 
-```
-Agent1 (aip:copaw.ai:agent_abc)        Agent2 (aip:github.com:agent_xyz)
-  │                                       │
-  │  1. Exchange tokens                   │
-  │  <───────────────────────────────────>│
-  │                                       │
-  │  2. Agent1 verifies Agent2's JWT:     │
-  │     Read iss → "https://github.com"   │
-  │     Fetch github.com/.well-known/     │
-  │       aip-configuration → JWKS        │
-  │     Verify JWT signature              │
-  │                                       │
-  │  3. Agent2 verifies Agent1's JWT:     │
-  │     Read iss → "https://copaw.ai"     │
-  │     Fetch copaw.ai/.well-known/       │
-  │       aip-configuration → JWKS        │
-  │     Verify JWT signature              │
+```mermaid
+sequenceDiagram
+    participant A1 as Agent1 (aip:copaw.ai:agent_abc)
+    participant A2 as Agent2 (aip:github.com:agent_xyz)
+
+    A1->>A2: 1. Exchange tokens
+    A2->>A1:
+
+    Note over A1: 2. Read iss → github.com<br/>Fetch JWKS → verify signature
+    Note over A2: 3. Read iss → copaw.ai<br/>Fetch JWKS → verify signature
 ```
 
 Each agent verifies the other against the other's IdP. No central authority is needed. Each agent maintains its own trusted provider list.
@@ -663,12 +614,11 @@ Layer 2 defines how hubs report agent activity. Reports are **hub-signed attesta
 
 The Activity Tracker is a service **logically separate** from the Identity Provider.
 
-```
-Identity Provider (IdP)              Activity Tracker
-  → registers agents                   → receives hub-signed activity reports
-  → issues tokens                      → validates and stores reports
-  → manages keys                       → serves activity queries
-  → small, stable, security-critical   → high-volume, evolvable
+```mermaid
+graph LR
+    IdP["Identity Provider (IdP)<br/>• registers agents<br/>• issues tokens<br/>• manages keys<br/>• small, stable, security-critical"]
+    AT["Activity Tracker<br/>• receives hub-signed reports<br/>• validates and stores reports<br/>• serves activity queries<br/>• high-volume, evolvable"]
+    IdP -.- AT
 ```
 
 They MAY be operated by the same organization but SHOULD be separate services with separate scaling profiles.
@@ -885,12 +835,29 @@ Layer 3 computes trust and reputation from Layer 2 activity data. It is **not a 
 
 Trust services consume activity data from the Activity Tracker and produce queryable scores:
 
-```
-Activity Tracker (Layer 2)         Trust Service (Layer 3)
-  → stores hub-signed reports        → reads activity data
-  → serves raw activity queries      → computes trust scores
-                                     → serves trust queries
-                                     → multiple providers can coexist
+```mermaid
+graph LR
+    AT["Activity Tracker<br/>(Layer 2)"]
+    TS["Trust Service<br/>(Layer 3)"]
+
+    AT -->|"activity data"| TS
+
+    subgraph AT_Role [" "]
+        direction TB
+        AT1["Stores hub-signed reports"]
+        AT2["Serves raw activity queries"]
+    end
+
+    subgraph TS_Role [" "]
+        direction TB
+        TS1["Reads activity data"]
+        TS2["Computes trust scores"]
+        TS3["Serves trust queries"]
+        TS4["Multiple providers can coexist"]
+    end
+
+    AT --- AT_Role
+    TS --- TS_Role
 ```
 
 Trust services are **consumers** of the Activity Tracker, not part of it. A trust service authenticates to the Activity Tracker as a registered service and reads public activity summaries.
@@ -1234,17 +1201,12 @@ AIP does not compete with MCP (Model Context Protocol) or Agent Skills. They ope
 
 ### 12.1 The Three Layers
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Agent Skills (SKILL.md)                                         │
-│  "How to do it" — static instructions, no auth, no network      │
-├─────────────────────────────────────────────────────────────────┤
-│  MCP Tools (OAuth 2.1)                                           │
-│  "What to call" — runtime tool invocation, per-server auth       │
-├─────────────────────────────────────────────────────────────────┤
-│  AIP (Ed25519 + JWT)                                             │
-│  "Who am I" — cross-platform identity, agent-native auth         │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    Skills["Agent Skills (SKILL.md) — 'How to do it' — static instructions, no auth, no network"]
+    MCP["MCP Tools (OAuth 2.1) — 'What to call' — runtime tool invocation, per-server auth"]
+    AIP["AIP (Ed25519 + JWT) — 'Who am I' — cross-platform identity, agent-native auth"]
 ```
 
 A Skill says "book the cheapest flight to Tokyo next Tuesday." An MCP Tool provides the airline booking API. AIP answers "why should the airline let this agent charge my card — it is travel-bot, operated by Acme Corp, trust score 0.85, delegation from user Bob with $5,000 spend limit."
@@ -1298,23 +1260,16 @@ With AIP:
 - The platform queries the agent's trust score: 200+ successful bookings, no disputes, trust score 0.85
 - The same identity works on any booking platform that accepts AIP tokens
 
-```
-Skill (SKILL.md)          Agent                     Booking Platform (Hub)
-  │                          │                           │
-  │  "Book flight to Tokyo"  │                           │
-  │ ──────────────────────>  │                           │
-  │                          │                           │
-  │                          │  AIP JWT (auto)           │
-  │                          │  + delegation: user_bob   │
-  │                          │  + max_spend: 5000        │
-  │                          │ ────────────────────────> │
-  │                          │                           │
-  │                          │         Verify JWT,       │
-  │                          │         check trust,      │
-  │                          │         check delegation  │
-  │                          │                           │
-  │                          │  "Booking confirmed"      │
-  │                          │ <──────────────────────── │
+```mermaid
+sequenceDiagram
+    participant Skill as Skill (SKILL.md)
+    participant Agent
+    participant Hub as Booking Platform (Hub)
+
+    Skill->>Agent: "Book flight to Tokyo"
+    Agent->>Hub: AIP JWT (auto)<br/>+ delegation: user_bob<br/>+ max_spend: 5000
+    Hub->>Hub: Verify JWT,<br/>check trust,<br/>check delegation
+    Hub-->>Agent: "Booking confirmed"
 ```
 
 **Scenario 2: Autonomous Trading Agent**
