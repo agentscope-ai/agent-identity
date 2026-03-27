@@ -237,3 +237,19 @@ cd examples/demo-agent && python agent.py
 - [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) / [SPIFFE](https://spiffe.io/) — 工作负载身份标准，正在被拉伸用于 Agent 场景。AIP Layer 0 可插拔兼容。
 - [OAuth 2.0](https://oauth.net/2/) / [OIDC](https://openid.net/connect/) — AIP 借鉴了联邦身份认证的成熟模式，但为 Agent 做了原生设计。
 - [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/agentic-ai-identity-and-access-management) — NIST 关于 Agent 身份的概念文件，征求意见中（2026年4月2日截止）。
+
+### 跟 OIDC / "用 Google 登录" 的类比
+
+| | OIDC / "用 Google 登录" | AIP |
+|---|---|---|
+| **谁登录** | 人类（浏览器） | Agent（代码） |
+| **身份提供方** | Google, Okta, Auth0 | CoPaw, 自托管 IdP |
+| **依赖方** | Web 应用（Spotify, Notion） | Hub（交易平台、任务市场） |
+| **凭证** | 密码 + MFA → cookie | Ed25519 私钥 → 签名 |
+| **令牌** | JWT（Google 签发） | JWT（IdP 签发） |
+| **发现** | `/.well-known/openid-configuration` | `/.well-known/aip-configuration` |
+| **验证** | Spotify 用 Google 缓存的公钥本地验签 | Hub 用 IdP 缓存的公钥本地验签 |
+| **联邦** | Spotify 接受 Google、GitHub、Apple | Hub 接受 CoPaw、GitHub、阿里云 |
+| **请求时回调** | 不需要——本地验证 | 不需要——本地验证 |
+
+核心流程一样：向提供方证明身份 → 拿到短期 JWT → 带着 JWT 去任何信任你提供方的平台 → 平台本地验签。AIP 本质上是**为非人类实体重新设计的 OIDC**——没有浏览器，没有密码，没有授权弹窗。只有密钥和签名。
