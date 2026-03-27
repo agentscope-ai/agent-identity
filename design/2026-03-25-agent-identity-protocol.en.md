@@ -443,40 +443,6 @@ Before presenting an AIP token to a service, the agent SHOULD:
 
 This ensures agents do not present tokens to impersonating services. The `aud` claim provides an additional safeguard — even if a token is intercepted, it cannot be replayed against a different service.
 
-### 6.9 Agent-to-Agent Authentication
-
-Agents can verify each other's identity using the same mechanism used for agent-to-hub authentication. No additional protocol is required.
-
-When two agents from different IdPs interact (e.g., on a shared hub, or in a multi-agent workflow):
-
-```mermaid
-sequenceDiagram
-    participant A1 as Agent1 (aip:copaw.ai:agent_abc)
-    participant A2 as Agent2 (aip:github.com:agent_xyz)
-
-    A1->>A2: 1. Exchange tokens
-    A2->>A1:
-
-    Note over A1: 2. Read iss → github.com<br/>Fetch JWKS → verify signature
-    Note over A2: 3. Read iss → copaw.ai<br/>Fetch JWKS → verify signature
-```
-
-Each agent verifies the other against the other's IdP. No central authority is needed. Each agent maintains its own trusted provider list.
-
-**Audience (`aud`) convention for agent-to-agent tokens:**
-
-Agent-to-agent interaction typically happens within a hub context (two agents meet on a shared platform). In this case, both agents use their existing hub-scoped tokens — the hub has already verified both, and agents trust each other transitively through the hub.
-
-For direct peer-to-peer communication outside a hub context, the agent MAY request a token with the target agent's ID as the audience:
-
-```json
-{
-  "aud": "aip:github.com:agent_xyz"
-}
-```
-
-This token is tightly scoped — it only works for agent_xyz. Hub-mediated interaction (using the hub URL as audience) is preferred for most use cases.
-
 ---
 
 ## 7. Layer 1: Authorization & Claims Specification
@@ -1394,6 +1360,18 @@ This enables multi-agent workflows where a parent agent spawns specialized sub-a
 The current design handles multi-agent workflows through the `spawned_by` metadata field — the identity layer records the relationship, but the principal is always the human or org who created the root agent. This keeps the IdP simple while preserving audit trails.
 
 Agent-as-principal should be considered when real use cases demonstrate that the `spawned_by` approach is insufficient — when sub-agents genuinely need independent identities with their own key management, separate from their parent's principal. Adding `"type": "agent"` to the principal field is backwards-compatible and can be introduced in a future version of the spec.
+
+### Agent-to-Agent Authentication
+
+Currently, agents interact through hubs — the hub verifies both sides. Direct peer-to-peer agent authentication is a natural extension: two agents from different IdPs exchange tokens and each verifies the other by reading the `iss` claim and fetching the corresponding IdP's JWKS.
+
+This would enable multi-agent workflows where agents need to verify each other without a hub in between. The mechanism is straightforward (same JWT verification, just agent-to-agent instead of agent-to-hub), but the real-world use cases haven't materialized yet. Key open questions:
+
+- **Audience convention** — should the target agent's ID be used as `aud`? Or should hub-mediated trust (both agents verified by the same hub) be the standard pattern?
+- **Trust transitivity** — if two agents are both verified by the same hub, is that sufficient? When would direct verification be needed?
+- **Discovery** — how do agents find each other's tokens outside of a hub context?
+
+This should be specified when direct agent-to-agent communication becomes a real requirement.
 
 ### IdP Migration and Identity Recovery
 

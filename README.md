@@ -127,21 +127,6 @@ graph LR
 
 不只是平台验 Agent——Agent 也要验平台。出示 token 之前，Agent 应确认平台的 TLS 证书和 `service_id` 与 token 的 `aud` 一致，防止把 token 交给假平台。
 
-### Agent 间认证
-
-```mermaid
-sequenceDiagram
-    participant A1 as Agent1 (CoPaw)
-    participant A2 as Agent2 (GitHub)
-
-    A1->>A2: 交换 token
-    A2->>A2: 读 iss → copaw.ai<br/>拿 JWKS 验签
-    A1->>A1: 读 iss → github.com<br/>拿 JWKS 验签
-    Note over A1,A2: 互验完成，无需中央权威
-```
-
-两个来自不同 IdP 的 Agent 也能互验身份——各自读对方 JWT 的 `iss`，去对应 IdP 拿公钥验签。没有中央权威，各自维护自己的可信提供商列表。
-
 ---
 
 ## 活动追踪
