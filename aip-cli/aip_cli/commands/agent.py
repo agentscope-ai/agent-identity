@@ -59,16 +59,22 @@ def create(
     save_private_key(agent_dir / "private_key", private_key_bytes)
 
     # Save agent metadata
+    external_id = config.get("external_id", "")
+    principal_name = config.get("name", "")
     agent_meta = {
         "agent_id": agent_id,
         "kid": kid,
         "name": name,
         "idp_url": config["idp_url"],
+        "principal_id": config["principal_id"],
+        "principal_external_id": external_id,
+        "principal_name": principal_name,
     }
     with open(agent_dir / "agent.json", "w") as f:
         json.dump(agent_meta, f, indent=2)
 
     typer.echo(f"\u2713 Agent created: {agent_id}")
+    typer.echo(f"  Principal: {external_id or config['principal_id']}" + (f" ({principal_name})" if principal_name and principal_name != external_id else ""))
     typer.echo(f"  Private key saved to {agent_dir}/")
 
 

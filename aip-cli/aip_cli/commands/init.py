@@ -131,15 +131,21 @@ def init(
             typer.echo("--name is required in --dev mode.", err=True)
             raise typer.Exit(code=1)
         result = _init_dev(base, name)
+        external_id = name
         display_name = name
     else:
         result = _init_github(base)
-        display_name = result.get("external_id") or result.get("name", "")
+        external_id = result.get("external_id", "")
+        display_name = external_id or result.get("name", "")
+
+    principal_name = result.get("name", display_name)
 
     save_config(
         idp_url=base,
         principal_id=result["principal_id"],
         management_token=result["management_token"],
+        external_id=external_id,
+        name=principal_name,
     )
 
     typer.echo(f"\u2713 Logged in as {display_name} on {provider}")

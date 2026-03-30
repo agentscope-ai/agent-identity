@@ -32,7 +32,13 @@ def load_config() -> dict:
         return json.load(f)
 
 
-def save_config(idp_url: str, principal_id: str, management_token: str) -> None:
+def save_config(
+    idp_url: str,
+    principal_id: str,
+    management_token: str,
+    external_id: str = "",
+    name: str = "",
+) -> None:
     """Save config to ~/.aip/config.json."""
     config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +46,8 @@ def save_config(idp_url: str, principal_id: str, management_token: str) -> None:
         "idp_url": idp_url,
         "principal_id": principal_id,
         "management_token": management_token,
+        "external_id": external_id,
+        "name": name,
     }
     with open(config_path, "w") as f:
         json.dump(data, f, indent=2)
