@@ -33,29 +33,60 @@ aip:<提供商域名>:<唯一标识>
 
 ### 认证流程
 
-分两步：先认证主体（人），再认证 Agent（机器）。
+分三步：先认证主体（人），再创建 Agent（生成密钥），最后 Agent 自主认证（运行时）。
 
 **第一步：主体认证（一次性）**
 
-开发者通过 OAuth 向 IdP 证明自己是谁——跟"用 GitHub 登录"一个道理。这是整个问责链的锚点：没有这一步，任何人都能匿名注册 Agent。
+开发者通过 CLI 向 IdP 请求注册。IdP 打开浏览器，跳转到 OAuth 提供商（GitHub、Google 等）的登录页面，开发者在浏览器中完成授权。这是整个问责链的锚点：没有这一步，任何人都能匿名注册 Agent。
 
 ```mermaid
 sequenceDiagram
     participant Dev as 开发者
+    participant CLI as AIP CLI
     participant IdP as 身份提供商 (IdP)
     participant OAuth as 外部 OAuth 提供商<br/>(GitHub, 阿里云等)
 
-    Dev->>IdP: aip init（注册/登录）
-    IdP->>OAuth: OAuth 2.0 授权码流程
-    OAuth->>Dev: 浏览器登录 + 授权
-    Dev->>OAuth: 同意
-    OAuth->>IdP: 授权码 → 身份信息
-    IdP-->>Dev: 管理 Token（用于创建 Agent）
+    Dev->>CLI: aip init
+    CLI->>IdP: 请求注册主体
+    IdP->>OAuth: OAuth 授权流程
+    OAuth->>Dev: 浏览器打开登录页面
+    Dev->>OAuth: 登录并授权
+    OAuth->>IdP: 验证通过，返回身份信息
+    IdP->>IdP: 创建主体记录
+    IdP-->>CLI: 管理 Token
+    CLI->>CLI: 保存到本地 ~/.aip/config.json
 ```
 
 组织主体通过域名验证或企业 SSO（Okta、Entra 等）完成认证。
 
-**第二步：Agent 认证（运行时，自动）**
+**第二步：创建 Agent（一次性）**
+
+主体认证通过后，开发者在 Agent 要运行的机器上创建 Agent 身份。CLI 在本地生成 Ed25519 密钥对，将公钥注册到 IdP，私钥留在本地——永远不离开这台机器。
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant CLI as AIP CLI
+    participant IdP as 身份提供商 (IdP)
+
+    Dev->>CLI: aip agent create --name shark
+    CLI->>CLI: 生成 Ed25519 密钥对
+    CLI->>IdP: 注册公钥 + 主体信息
+    IdP->>IdP: 存储 agent_id + 公钥<br/>关联到主体
+    IdP-->>CLI: agent_id + kid
+    CLI->>CLI: 保存私钥到 ~/.aip/agents/shark/<br/>（权限 0600，不可读取）
+```
+
+完成后，两边各有所需：
+
+| | IdP 持有 | 本地持有 |
+|---|---|---|
+| **主体** | id、名称、外部身份（`github:alice`） | 管理 Token |
+| **Agent** | agent_id、公钥、关联到主体 | agent_id、私钥 |
+
+IdP 永远不会看到私钥。本地永远不会有其他主体的凭证。
+
+**第三步：Agent 认证（运行时，自动）**
 
 Agent 用自己的 Ed25519 私钥换取短期 JWT，全程无需人参与：
 
@@ -66,7 +97,7 @@ sequenceDiagram
     participant Hub as 平台 (Hub)
 
     Agent->>IdP: 1. 用私钥签名请求
-    IdP->>IdP: 验证签名
+    IdP->>IdP: 验证签名（与注册的公钥比对）
     IdP-->>Agent: 2. 签发短期 JWT (1-4小时)
     Agent->>Hub: 3. 带着 JWT 访问平台
     Hub->>Hub: 4. 用 IdP 公钥本地验签（不用回调 IdP）
