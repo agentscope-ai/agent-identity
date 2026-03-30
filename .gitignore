@@ -164,7 +164,11 @@ dojozero-store
 /outputs/
 /data/
 
-# Claude configs 
+# AIP runtime artifacts
+*.db
+*.pem
+
+# Claude configs
 /.claude/
 
 # Package lock files

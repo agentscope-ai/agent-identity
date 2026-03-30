@@ -5,16 +5,15 @@ import time
 from pathlib import Path
 
 import typer
-import httpx
 
-from aip_cli.config import load_config, get_agent_dir
-from aip_cli.crypto import (
-    generate_keypair,
-    save_private_key,
+from aip_sdk.manage import (
+    load_config,
+    get_agent_dir,
+    create_agent,
     load_private_key,
     sign_token_request,
-    compute_kid,
 )
+import httpx
 
 app = typer.Typer(help="Manage agents")
 
@@ -25,56 +24,23 @@ def create(
 ) -> None:
     """Create a new agent identity."""
     try:
-        config = load_config()
+        registered, agent_dir = create_agent(name)
     except FileNotFoundError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-
-    # Generate keypair
-    private_key_bytes, public_key_bytes = generate_keypair()
-    kid = compute_kid(public_key_bytes)
-
-    # Register agent with IdP
-    url = f"{config['idp_url']}/aip/agents"
-    payload = {
-        "name": name,
-        "public_key": public_key_bytes.hex(),
-        "principal_id": config["principal_id"],
-    }
-    headers = {"Authorization": f"Bearer {config['management_token']}"}
-
-    try:
-        resp = httpx.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
+    except Exception as e:
         typer.echo(f"Error creating agent: {e}", err=True)
         raise typer.Exit(code=1)
 
-    data = resp.json()
-    agent_id = data["agent_id"]
+    # Read back metadata for display
+    with open(agent_dir / "agent.json") as f:
+        meta = json.load(f)
 
-    # Save private key
-    agent_dir = get_agent_dir(name)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    save_private_key(agent_dir / "private_key", private_key_bytes)
+    external_id = meta.get("principal_external_id", "")
+    principal_name = meta.get("principal_name", "")
 
-    # Save agent metadata
-    external_id = config.get("external_id", "")
-    principal_name = config.get("name", "")
-    agent_meta = {
-        "agent_id": agent_id,
-        "kid": kid,
-        "name": name,
-        "idp_url": config["idp_url"],
-        "principal_id": config["principal_id"],
-        "principal_external_id": external_id,
-        "principal_name": principal_name,
-    }
-    with open(agent_dir / "agent.json", "w") as f:
-        json.dump(agent_meta, f, indent=2)
-
-    typer.echo(f"\u2713 Agent created: {agent_id}")
-    typer.echo(f"  Principal: {external_id or config['principal_id']}" + (f" ({principal_name})" if principal_name and principal_name != external_id else ""))
+    typer.echo(f"\u2713 Agent created: {registered.agent_id}")
+    typer.echo(f"  Principal: {external_id or meta.get('principal_id', '')}" + (f" ({principal_name})" if principal_name and principal_name != external_id else ""))
     typer.echo(f"  Private key saved to {agent_dir}/")
 
 
