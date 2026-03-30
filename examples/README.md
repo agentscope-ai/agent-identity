@@ -1,5 +1,48 @@
 # AIP Reference Implementation — Demo
 
+## Architecture
+
+```mermaid
+graph LR
+    subgraph "开发者 setup（一次性）"
+        CLI["aip-cli"]
+    end
+
+    subgraph "IdP 服务"
+        IDP["aip-idp :8000"]
+    end
+
+    subgraph "GitHub"
+        GH["GitHub OAuth"]
+    end
+
+    subgraph "Agent 运行时"
+        AGENT["demo-agent"] -->|uses| SDK["aip-sdk"]
+    end
+
+    subgraph "Hub 运行时"
+        HUB["demo-hub :8001"] -->|uses| VERIFY["aip-verify"]
+    end
+
+    CLI -->|"① 请求注册主体"| IDP
+    IDP -->|"② GitHub OAuth 验证身份"| GH
+    CLI -->|"③ 创建 Agent"| IDP
+    SDK -->|"④ 私钥签名 → JWT"| IDP
+    SDK -->|"⑤ 带 JWT 请求"| HUB
+    VERIFY -->|"⑥ 获取 IdP 公钥，本地验签"| IDP
+```
+
+| 组件 | 包 | 端口 | 类型 | 作用 |
+|------|-----|------|------|------|
+| **IdP** | `aip-idp` | :8000 | 参考实现（可替换） | 注册主体/Agent，签发 JWT。生产中由 CoPaw、阿里云等正式 IdP 替代 |
+| **CLI** | `aip-cli` | — | 可交付库 | 开发者工具：`aip init` + `aip agent create`，适配任何 AIP IdP |
+| **Demo Agent** | `aip-sdk` | — | 可交付库 | 加载私钥，自动获取 JWT，发起认证请求，不绑定特定 IdP |
+| **Demo Hub** | `aip-verify` | :8001 | 可交付库 | 验证 JWT，返回 Agent 身份，支持多 IdP |
+
+`aip-cli`、`aip-sdk`、`aip-verify` 是协议的客户端库，可直接用于生产。`aip-idp` 和 `examples/` 是参考实现和演示。
+
+---
+
 ## Quick Start (Local Dev Mode)
 
 Local dev mode uses direct registration (no GitHub OAuth) so you can try the full flow without setting up a GitHub OAuth App.

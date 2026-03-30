@@ -225,7 +225,75 @@ agent-identity/
 ├── aip-sdk/                         # Agent 客户端 SDK
 ├── aip-verify/                      # Hub 验证库
 └── examples/                        # 端到端演示
+    ├── demo-hub/                    # 示例平台（验证 Agent 身份）
+    └── demo-agent/                  # 示例 Agent（自动认证）
 ```
+
+### 各模块关系
+
+```mermaid
+graph TB
+    subgraph 开发者
+        CLI["aip-cli<br/>命令行工具"]
+    end
+
+    subgraph IdP 服务
+        IDP["aip-idp<br/>身份提供方"]
+    end
+
+    subgraph GitHub
+        GH["GitHub OAuth"]
+    end
+
+    subgraph Agent 运行时
+        SDK["aip-sdk<br/>Agent 客户端 SDK"]
+        AGENT["demo-agent<br/>示例 Agent"]
+    end
+
+    subgraph Hub 运行时
+        VERIFY["aip-verify<br/>Hub 验证库"]
+        HUB["demo-hub<br/>示例平台"]
+    end
+
+    CLI -->|"① aip init<br/>请求注册主体"| IDP
+    IDP -->|"② GitHub OAuth<br/>验证开发者身份"| GH
+    CLI -->|"③ aip agent create<br/>注册公钥，保存私钥到本地"| IDP
+
+    SDK -->|"④ 用私钥签名换 JWT"| IDP
+    AGENT -->|"使用"| SDK
+    SDK -->|"⑤ 带 JWT 请求平台"| HUB
+
+    HUB -->|"使用"| VERIFY
+    VERIFY -->|"⑥ 获取并缓存 IdP 公钥"| IDP
+    VERIFY -->|"本地验签 JWT"| VERIFY
+```
+
+**可交付库（Shippable Libraries）**——与任何 AIP 兼容的 IdP 配合使用：
+
+| 模块 | 角色 | 说明 |
+|------|------|------|
+| **aip-cli** | 开发者工具 | `aip init` 向 IdP 请求注册主体，`aip agent create` 生成密钥对并注册。适配任何 AIP 兼容 IdP |
+| **aip-sdk** | Agent 客户端 SDK | Agent 运行时使用：加载私钥、自动获取和刷新 JWT、注入认证头。不绑定特定 IdP |
+| **aip-verify** | Hub 验证库 | Hub 运行时使用：获取 IdP 公钥、验证 JWT 签名和声明。支持任意数量的 IdP |
+
+**参考实现（Reference Implementation）**——可被替换：
+
+| 模块 | 角色 | 说明 |
+|------|------|------|
+| **aip-idp** | 参考 IdP | 演示用的身份提供方实现（FastAPI + SQLite）。生产环境中会被 CoPaw 平台、阿里云 Agent ID 等正式 IdP 替代 |
+| **demo-hub** | 示例平台 | 演示 `aip-verify` 用法的最小 Hub |
+| **demo-agent** | 示例 Agent | 演示 `aip-sdk` 用法的最小 Agent |
+
+`aip-cli`、`aip-sdk`、`aip-verify` 是协议的客户端库，不依赖任何特定 IdP 实现。只要 IdP 实现了 AIP 标准端点（`/.well-known/aip-configuration`、`/aip/token` 等），这三个库就能直接使用。`aip-idp` 是一个可以跑起来的参考实现，帮助理解协议和本地开发，但不是生产组件。
+
+**数据流向：**
+
+1. **开发者** 用 `aip-cli` 向 `aip-idp` 请求注册主体
+2. **IdP** 通过 GitHub OAuth 验证开发者身份（Device Flow 或 Authorization Code + PKCE）
+3. **开发者** 用 `aip-cli` 创建 Agent（生成 Ed25519 密钥对，公钥注册到 IdP，私钥保存本地）
+4. **Agent** 运行时用 `aip-sdk` 加载私钥，向 `aip-idp` 签名换取短期 JWT
+5. **Agent** 带 JWT 访问 Hub
+6. **Hub** 用 `aip-verify` 从 IdP 获取公钥（缓存），本地验签 JWT → 知道 Agent 是谁、谁负责、能做什么
 
 ---
 
