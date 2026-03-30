@@ -231,15 +231,17 @@ agent-identity/
 
 ## 快速体验
 
+### 本地开发模式（无需 GitHub OAuth）
+
 ```bash
 # 安装
-pip install aip-idp/ aip-cli/ aip-sdk/ aip-verify/
+pip install -e aip-idp/ aip-cli/ aip-sdk/ aip-verify/
 
 # 启动 IdP
 cd aip-idp && uvicorn aip_idp.main:app --port 8000
 
-# 注册身份、创建 Agent
-aip init --name alice --provider http://localhost:8000
+# 注册身份、创建 Agent（--dev 跳过 OAuth，本地测试用）
+aip init --provider http://localhost:8000 --dev --name alice
 aip agent create --name shark
 
 # 启动示例 Hub
@@ -249,6 +251,42 @@ cd examples/demo-hub && uvicorn hub:app --port 8001
 cd examples/demo-agent && python agent.py
 # → Hub says: {'agent_name': 'shark', 'message': 'Welcome, shark!'}
 ```
+
+### 生产模式（GitHub OAuth）
+
+IdP 支持两种 OAuth 流程，适配不同客户端：
+
+**CLI（Device Flow）**——终端工具使用，无需回调 URL：
+
+```bash
+# 配置 GitHub OAuth App Client ID
+# (在 aip-idp/aip_idp/config.py 或环境变量中设置)
+settings.github_client_id = "your_client_id"
+
+# 启动 IdP 后，直接运行（不加 --dev）
+aip init --provider http://localhost:8000
+
+# 终端输出：
+#   Please visit: https://github.com/login/device
+#   Enter code:   ABCD-1234
+#   Open browser? [Y/n]
+#   Waiting for authorization.....
+#   ✓ Logged in as github:alice (Alice) on http://localhost:8000
+```
+
+**Web 门户（Authorization Code + PKCE）**——浏览器使用，标准 OAuth 重定向：
+
+```
+前端调用  POST /aip/auth/login/github  {redirect_uri: "https://..."}
+  → 拿到 GitHub 授权 URL
+  → 重定向用户到 GitHub 登录
+  → GitHub 回调 IdP
+  → IdP 验证身份，重定向回前端，附带 principal_id + management_token
+```
+
+两种流程最终效果一样：GitHub 验证身份 → 创建主体 → 拿到管理令牌 → 可以创建 Agent。
+
+详见 [examples/README.md](examples/README.md)。
 
 ---
 

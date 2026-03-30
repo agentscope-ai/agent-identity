@@ -7,7 +7,9 @@
 """
 
 import time
+from unittest.mock import AsyncMock, patch
 
+import httpx as httpx_lib
 import jwt as pyjwt
 import pytest
 import pytest_asyncio
@@ -240,3 +242,236 @@ async def test_discovery_endpoints(client):
     assert len(jwks["keys"]) == 1
     assert jwks["keys"][0]["kty"] == "OKP"
     assert jwks["keys"][0]["crv"] == "Ed25519"
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth Device Flow tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_device_flow(client):
+    """Test GitHub OAuth Device Flow: start, poll (pending), poll (success)."""
+    from aip_idp.config import settings
+    settings.github_client_id = "test_client_id"
+
+    poll_count = 0
+
+    async def mock_gh_post(url, **kwargs):
+        nonlocal poll_count
+        if "device/code" in url:
+            return httpx_lib.Response(200, json={
+                "device_code": "test_device_code_123",
+                "user_code": "ABCD-1234",
+                "verification_uri": "https://github.com/login/device",
+                "expires_in": 900,
+                "interval": 5,
+            })
+        elif "access_token" in url:
+            poll_count += 1
+            if poll_count <= 1:
+                return httpx_lib.Response(200, json={"error": "authorization_pending"})
+            return httpx_lib.Response(200, json={
+                "access_token": "gho_test_token_abc",
+                "token_type": "bearer",
+                "scope": "read:user",
+            })
+        return httpx_lib.Response(404)
+
+    async def mock_gh_get(url, **kwargs):
+        if "api.github.com/user" in url:
+            return httpx_lib.Response(200, json={
+                "login": "deviceflow_alice",
+                "name": "Alice Smith",
+                "id": 12345,
+            })
+        return httpx_lib.Response(404)
+
+    with (
+        patch("aip_idp.routes.auth._github_post", side_effect=mock_gh_post),
+        patch("aip_idp.routes.auth._github_get", side_effect=mock_gh_get),
+    ):
+        # Step 1: Start device flow
+        resp = await client.post("/aip/auth/device")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["user_code"] == "ABCD-1234"
+        assert data["verification_uri"] == "https://github.com/login/device"
+        device_code = data["device_code"]
+
+        # Step 2: First poll — authorization pending
+        resp = await client.post(
+            "/aip/auth/device/token",
+            json={"device_code": device_code},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["error"] == "authorization_pending"
+
+        # Step 3: Second poll — user authorized, get principal
+        resp = await client.post(
+            "/aip/auth/device/token",
+            json={"device_code": device_code},
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert "error" not in result
+        assert result["external_id"] == "github:deviceflow_alice"
+        assert result["name"] == "Alice Smith"
+        assert result["principal_id"]
+        assert result["management_token"]
+
+    # Verify the principal was persisted by logging in via direct endpoint
+    resp = await client.post(
+        "/aip/auth/login",
+        json={"external_id": "github:deviceflow_alice"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["principal_id"] == result["principal_id"]
+
+
+@pytest.mark.asyncio
+async def test_device_flow_existing_principal(client):
+    """Device flow with an already-registered GitHub user logs them in."""
+    from aip_idp.config import settings
+    settings.github_client_id = "test_client_id"
+
+    # Pre-register the principal via direct endpoint
+    resp = await client.post("/aip/auth/register", json={
+        "type": "human",
+        "name": "Bob (original)",
+        "external_id": "github:deviceflow_bob",
+    })
+    assert resp.status_code == 200
+    original_principal_id = resp.json()["principal_id"]
+
+    async def mock_gh_post(url, **kwargs):
+        if "device/code" in url:
+            return httpx_lib.Response(200, json={
+                "device_code": "test_dc_2",
+                "user_code": "EFGH-5678",
+                "verification_uri": "https://github.com/login/device",
+                "expires_in": 900,
+                "interval": 5,
+            })
+        elif "access_token" in url:
+            return httpx_lib.Response(200, json={
+                "access_token": "gho_test_2",
+                "token_type": "bearer",
+                "scope": "read:user",
+            })
+        return httpx_lib.Response(404)
+
+    async def mock_gh_get(url, **kwargs):
+        if "api.github.com/user" in url:
+            return httpx_lib.Response(200, json={
+                "login": "deviceflow_bob",
+                "name": "Bob",
+                "id": 67890,
+            })
+        return httpx_lib.Response(404)
+
+    with (
+        patch("aip_idp.routes.auth._github_post", side_effect=mock_gh_post),
+        patch("aip_idp.routes.auth._github_get", side_effect=mock_gh_get),
+    ):
+        resp = await client.post("/aip/auth/device")
+        assert resp.status_code == 200
+        device_code = resp.json()["device_code"]
+
+        resp = await client.post(
+            "/aip/auth/device/token",
+            json={"device_code": device_code},
+        )
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["principal_id"] == original_principal_id
+        assert result["external_id"] == "github:deviceflow_bob"
+
+
+@pytest.mark.asyncio
+async def test_device_flow_not_configured(client):
+    """Device flow returns 501 when github_client_id is not set."""
+    from aip_idp.config import settings
+    settings.github_client_id = ""
+
+    resp = await client.post("/aip/auth/device")
+    assert resp.status_code == 501
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth Authorization Code + PKCE (web portal) tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_web_oauth_flow(client):
+    """Test Authorization Code + PKCE flow: start, callback, principal created."""
+    from aip_idp.config import settings
+    settings.github_client_id = "test_client_id"
+    settings.github_client_secret = "test_secret"
+
+    # Step 1: Start the flow — get the GitHub authorize URL
+    resp = await client.post(
+        "/aip/auth/login/github",
+        json={"redirect_uri": "https://portal.example.com/auth/done"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "authorize_url" in data
+    assert "github.com/login/oauth/authorize" in data["authorize_url"]
+    assert "code_challenge=" in data["authorize_url"]
+    assert "S256" in data["authorize_url"]
+    state = data["state"]
+
+    # Step 2: Simulate GitHub callback with an authorization code
+    async def mock_gh_post(url, **kwargs):
+        if "access_token" in url:
+            return httpx_lib.Response(200, json={
+                "access_token": "gho_web_token",
+                "token_type": "bearer",
+                "scope": "read:user",
+            })
+        return httpx_lib.Response(404)
+
+    async def mock_gh_get(url, **kwargs):
+        if "api.github.com/user" in url:
+            return httpx_lib.Response(200, json={
+                "login": "web_carol",
+                "name": "Carol Web",
+                "id": 99999,
+            })
+        return httpx_lib.Response(404)
+
+    with (
+        patch("aip_idp.routes.auth._github_post", side_effect=mock_gh_post),
+        patch("aip_idp.routes.auth._github_get", side_effect=mock_gh_get),
+    ):
+        resp = await client.get(
+            f"/aip/auth/callback/github?code=test_authz_code&state={state}",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        location = resp.headers["location"]
+        assert location.startswith("https://portal.example.com/auth/done")
+        assert "principal_id=" in location
+        assert "management_token=" in location
+        assert "external_id=github%3Aweb_carol" in location or "external_id=github:web_carol" in location
+
+    # Verify the principal was persisted
+    resp = await client.post(
+        "/aip/auth/login",
+        json={"external_id": "github:web_carol"},
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_web_oauth_invalid_state(client):
+    """Callback with unknown state should fail."""
+    from aip_idp.config import settings
+    settings.github_client_id = "test_client_id"
+
+    resp = await client.get(
+        "/aip/auth/callback/github?code=test_code&state=bogus_state",
+    )
+    assert resp.status_code == 400

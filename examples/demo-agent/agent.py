@@ -2,10 +2,10 @@
 Demo: Autonomous agent authenticating with a hub using AIP.
 
 Prerequisites:
-  1. Start the IdP: cd aip-idp && uvicorn app.main:app --port 8000
+  1. Start the IdP: cd aip-idp && uvicorn aip_idp.main:app --port 8000
   2. Start the demo hub: cd examples/demo-hub && uvicorn hub:app --port 8001
   3. Create an agent identity:
-     aip init --name alice --provider http://localhost:8000
+     aip init --provider http://localhost:8000 --dev --name alice
      aip agent create --name demo-agent
   4. Run this script: python agent.py
 """
