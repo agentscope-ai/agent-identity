@@ -83,6 +83,41 @@ Principals are responsible for:
 
 Principals are **not** in the loop at runtime. Once an agent is deployed with its private key, it operates autonomously.
 
+### 4.2 Principal Authentication
+
+Before a principal can create agents, they must prove their identity to the IdP. This is the anchor of the entire accountability chain — without it, anyone can register agents anonymously and the "always a responsible party" guarantee collapses.
+
+**Human principals** authenticate via existing identity providers using standard OAuth 2.0 / OpenID Connect:
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant CLI as AIP CLI / Dashboard
+    participant IdP as AIP Identity Provider
+    participant OAuth as External OAuth Provider<br/>(GitHub, Alibaba Cloud, etc.)
+
+    Dev->>CLI: aip init --provider https://identity.example.com
+    CLI->>IdP: Initiate principal registration
+    IdP->>OAuth: OAuth 2.0 Authorization Code flow
+    OAuth->>Dev: Browser login + consent
+    Dev->>OAuth: Approve
+    OAuth->>IdP: Authorization code → access token + identity claims
+    IdP->>IdP: Create principal record<br/>(linked to verified external identity)
+    IdP-->>CLI: Management token (JWT)
+    CLI->>CLI: Save to ~/.aip/config.json
+```
+
+The IdP never sees the developer's OAuth password — it receives verified identity claims (user ID, email, org membership) from the external provider. This is the same pattern as "Sign in with GitHub" on any web service.
+
+**Organization principals** authenticate via:
+- **Domain ownership** — DNS TXT record or well-known endpoint, proving the org controls the domain
+- **Enterprise IdP** — SAML/OIDC SSO (Okta, Microsoft Entra, etc.), proving the admin is a member of the org
+- **Delegated admin** — an already-verified human principal with admin rights creates the org and invites other admins
+
+**Management token:** After authentication, the IdP issues a management token (JWT) that authorizes the principal to create agents, manage keys, and view activity. This token is separate from the agent tokens issued in the Layer 0 authentication flow — it is used for administrative operations only, not for agent-to-hub communication.
+
+**Why OAuth for principals but not for agents?** Principals are humans (or human-administered orgs) — they have browsers, can click "Authorize", and already have accounts on GitHub, Google, etc. OAuth is the right tool for human identity verification. Agents are software — they have no browser, no passwords, and run autonomously. Ed25519 key-based authentication is the right tool for software identity. AIP uses each mechanism where it fits.
+
 ```mermaid
 graph TD
     Alice["👤 Human principal<br/>GitHub: @alice"] --> Shark["🤖 shark<br/>aip:alibaba:agent_7x8k2m"]
@@ -93,7 +128,7 @@ graph TD
     Acme -.- Admins["Admins: @alice, @bob, @carol"]
 ```
 
-### 4.2 Agent
+### 4.3 Agent
 
 The identity unit. One agent = one identity = one reputation.
 
@@ -104,7 +139,7 @@ Each agent has:
 - A link to its principal (accountability chain)
 - An optional `spawned_by` field (if created as part of a multi-agent workflow)
 
-### 4.3 Identity Chain (Accountability)
+### 4.4 Identity Chain (Accountability)
 
 Every agent identity carries a provenance chain:
 
@@ -116,7 +151,7 @@ graph LR
 
 This chain is what regulators need. When an agent causes harm, the chain provides a clear path from action to accountable party. The principal always resolves to a human or organization — there is always a responsible party.
 
-### 4.4 Agent ID Format
+### 4.5 Agent ID Format
 
 Agent IDs follow URN format for global uniqueness and provider identification:
 

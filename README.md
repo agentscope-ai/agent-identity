@@ -33,6 +33,32 @@ aip:<提供商域名>:<唯一标识>
 
 ### 认证流程
 
+分两步：先认证主体（人），再认证 Agent（机器）。
+
+**第一步：主体认证（一次性）**
+
+开发者通过 OAuth 向 IdP 证明自己是谁——跟"用 GitHub 登录"一个道理。这是整个问责链的锚点：没有这一步，任何人都能匿名注册 Agent。
+
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant IdP as 身份提供商 (IdP)
+    participant OAuth as 外部 OAuth 提供商<br/>(GitHub, 阿里云等)
+
+    Dev->>IdP: aip init（注册/登录）
+    IdP->>OAuth: OAuth 2.0 授权码流程
+    OAuth->>Dev: 浏览器登录 + 授权
+    Dev->>OAuth: 同意
+    OAuth->>IdP: 授权码 → 身份信息
+    IdP-->>Dev: 管理 Token（用于创建 Agent）
+```
+
+组织主体通过域名验证或企业 SSO（Okta、Entra 等）完成认证。
+
+**第二步：Agent 认证（运行时，自动）**
+
+Agent 用自己的 Ed25519 私钥换取短期 JWT，全程无需人参与：
+
 ```mermaid
 sequenceDiagram
     participant Agent
@@ -48,6 +74,8 @@ sequenceDiagram
 ```
 
 平台验签是**本地完成**的——提前缓存 IdP 公钥，验签只是一个本地计算。IdP 挂了不影响已签发 token 的验证。
+
+**为什么主体用 OAuth、Agent 用密钥？** 主体是人——有浏览器，能点"授权"，已有 GitHub/Google 账号。Agent 是代码——没有浏览器，没有密码，7×24 自主运行。各用最合适的认证方式。
 
 ### JWT 内容
 
