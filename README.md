@@ -236,7 +236,7 @@ cd examples/demo-agent && python agent.py
 - [Ping Identity for AI](https://www.pingidentity.com/en/solution/agentic-ai-identity.html) — 基于 OAuth 2.0 Token Exchange 的企业 Agent 身份管控。重治理和 MCP 集成，但身份归平台所有，不解决跨平台可移植性。
 - [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) / [SPIFFE](https://spiffe.io/) — 工作负载身份标准，正在被拉伸用于 Agent 场景。AIP Layer 0 可插拔兼容。
 - [OAuth 2.0](https://oauth.net/2/) / [OIDC](https://openid.net/connect/) — AIP 借鉴了联邦身份认证的成熟模式，但为 Agent 做了原生设计。
-- [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/agentic-ai-identity-and-access-management) — NIST 关于 Agent 身份的概念文件，征求意见中（2026年4月2日截止）。
+- [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/news-insights/new-concept-paper-identity-and-authority-software-agents) — NIST 关于 Agent 身份的概念文件，征求意见中（2026年4月2日截止）。
 
 ### 跟 OIDC / "用 Google 登录" 的类比
 
