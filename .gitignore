@@ -175,5 +175,7 @@ dojozero-store
 package-lock.json
 
 # logs
-/logs/node_modules/
+logs/
+
+# node_modules
 node_modules/
