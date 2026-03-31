@@ -251,10 +251,10 @@ agent-identity/
 │   ├── 2026-03-25-agent-identity-protocol.en.md
 │   ├── 2026-03-25-agent-identity-protocol.zh.md
 │   └── 2026-03-25-agent-identity-commercialization.md
-├── aip-idp/                         # 参考 IdP 实现 (FastAPI)
-├── aip-cli/                         # CLI 工具 (aip init / aip agent create)
-├── aip-sdk/                         # Agent 客户端 SDK
-├── aip-verify/                      # Hub 验证库
+├── aip-sdk/                         # [可交付] Agent 端 SDK（运行时 + 身份管理）
+├── aip-verify/                      # [可交付] Hub 端验证库
+├── aip-idp/                         # [参考实现] IdP (FastAPI + SQLite)
+├── aip-cli/                         # [参考实现] CLI 工具 (基于 aip-sdk)
 └── examples/                        # 端到端演示
     ├── demo-hub/                    # 示例平台（验证 Agent 身份）
     └── demo-agent/                  # 示例 Agent（自动认证）
@@ -299,30 +299,50 @@ graph TB
     VERIFY -->|"本地验签 JWT"| VERIFY
 ```
 
-**可交付库（Shippable Libraries）**——与任何 AIP 兼容的 IdP 配合使用：
+**可交付库（Shippable Libraries）**——可直接用于生产：
 
-| 模块 | 角色 | 说明 |
-|------|------|------|
-| **aip-cli** | 开发者工具 | `aip init` 向 IdP 请求注册主体，`aip agent create` 生成密钥对并注册。适配任何 AIP 兼容 IdP |
-| **aip-sdk** | Agent 客户端 SDK | Agent 运行时使用：加载私钥、自动获取和刷新 JWT、注入认证头。不绑定特定 IdP |
-| **aip-verify** | Hub 验证库 | Hub 运行时使用：获取 IdP 公钥、验证 JWT 签名和声明。支持任意数量的 IdP |
+| 模块 | 角色 | 谁在用 |
+|------|------|--------|
+| **aip-sdk** | Agent 端 SDK | Agent 运行时（加载私钥、获取 JWT、注入认证头）+ 身份管理 API（生成密钥、注册 Agent、主体认证）。**Agent 用它跑，CLI 用它管理。** 例：CoPaw CLI 用 `aip-sdk` 创建 Agent，Agent 运行时也用 `aip-sdk` 获取 JWT |
+| **aip-verify** | Hub 端验证库 | Hub 运行时：获取 IdP 公钥、验证 JWT 签名和声明。例：DojoZero Hub 用 `aip-verify` 验证参赛 Agent 身份 |
 
-**参考实现（Reference Implementation）**——可被替换：
+```mermaid
+graph LR
+    subgraph "aip-sdk 的使用者"
+        AGENT["Agent<br/>（运行时认证）"]
+        COPAW["CoPaw CLI<br/>（身份管理）"]
+        AIPCLI["aip-cli<br/>（参考 CLI）"]
+    end
 
-| 模块 | 角色 | 说明 |
-|------|------|------|
-| **aip-idp** | 参考 IdP | 演示用的身份提供方实现（FastAPI + SQLite）。生产环境中会被 CoPaw 平台、阿里云 Agent ID 等正式 IdP 替代 |
-| **demo-hub** | 示例平台 | 演示 `aip-verify` 用法的最小 Hub |
-| **demo-agent** | 示例 Agent | 演示 `aip-sdk` 用法的最小 Agent |
+    subgraph "aip-verify 的使用者"
+        DOJO["DojoZero Hub<br/>（验证 Agent）"]
+        DEMOHUB["demo-hub<br/>（示例平台）"]
+    end
 
-`aip-cli`、`aip-sdk`、`aip-verify` 是协议的客户端库，不依赖任何特定 IdP 实现。只要 IdP 实现了 AIP 标准端点（`/.well-known/aip-configuration`、`/aip/token` 等），这三个库就能直接使用。`aip-idp` 是一个可以跑起来的参考实现，帮助理解协议和本地开发，但不是生产组件。
+    AGENT --> SDK["aip-sdk"]
+    COPAW --> SDK
+    AIPCLI --> SDK
+    DOJO --> VERIFY["aip-verify"]
+    DEMOHUB --> VERIFY
+```
+
+**参考实现（Reference Implementation）**——演示协议用法，可被替换：
+
+| 模块 | 角色 | 生产中被谁替代 |
+|------|------|----------------|
+| **aip-idp** | 参考 IdP | CoPaw 平台、阿里云 Agent ID 等正式 IdP |
+| **aip-cli** | 参考 CLI | CoPaw CLI、其他平台 CLI（都基于 `aip-sdk`） |
+| **demo-hub** | 示例平台 | DojoZero Hub 等真实平台（都基于 `aip-verify`） |
+| **demo-agent** | 示例 Agent | 真实 Agent（都基于 `aip-sdk`） |
+
+`aip-sdk` 和 `aip-verify` 是协议的两个核心库——一个给 Agent 端（含 CLI），一个给 Hub 端。不依赖任何特定 IdP 实现，只要 IdP 实现了 AIP 标准端点就能直接使用。`aip-cli` 和 `aip-idp` 是参考实现，帮助理解协议和本地开发。
 
 **数据流向：**
 
-1. **开发者** 用 `aip-cli` 向 `aip-idp` 请求注册主体
-2. **IdP** 通过 GitHub OAuth 验证开发者身份（Device Flow 或 Authorization Code + PKCE）
-3. **开发者** 用 `aip-cli` 创建 Agent（生成 Ed25519 密钥对，公钥注册到 IdP，私钥保存本地）
-4. **Agent** 运行时用 `aip-sdk` 加载私钥，向 `aip-idp` 签名换取短期 JWT
+1. **开发者** 通过 CLI（或平台门户）向 IdP 请求注册主体。CLI 调用 `aip-sdk` 的身份管理 API
+2. **IdP** 通过 OAuth（GitHub、Google SSO 等）验证开发者身份
+3. **开发者** 通过 CLI 创建 Agent——`aip-sdk` 生成 Ed25519 密钥对，公钥注册到 IdP，私钥保存本地
+4. **Agent** 运行时用 `aip-sdk` 加载私钥，向 IdP 签名换取短期 JWT
 5. **Agent** 带 JWT 访问 Hub
 6. **Hub** 用 `aip-verify` 从 IdP 获取公钥（缓存），本地验签 JWT → 知道 Agent 是谁、谁负责、能做什么
 

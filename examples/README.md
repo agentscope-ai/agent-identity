@@ -34,12 +34,12 @@ graph LR
 
 | 组件 | 包 | 端口 | 类型 | 作用 |
 |------|-----|------|------|------|
+| **Demo Agent** | `aip-sdk` | — | 可交付库 | Agent 端 SDK：加载私钥，自动获取 JWT，发起认证请求。也提供身份管理 API 供各类 CLI/平台复用 |
+| **Demo Hub** | `aip-verify` | :8001 | 可交付库 | Hub 端验证库：验证 JWT，返回 Agent 身份，支持多 IdP |
 | **IdP** | `aip-idp` | :8000 | 参考实现（可替换） | 注册主体/Agent，签发 JWT。生产中由 CoPaw、阿里云等正式 IdP 替代 |
-| **CLI** | `aip-cli` | — | 可交付库 | 开发者工具：`aip init` + `aip agent create`，适配任何 AIP IdP |
-| **Demo Agent** | `aip-sdk` | — | 可交付库 | 加载私钥，自动获取 JWT，发起认证请求，不绑定特定 IdP |
-| **Demo Hub** | `aip-verify` | :8001 | 可交付库 | 验证 JWT，返回 Agent 身份，支持多 IdP |
+| **CLI** | `aip-cli` | — | 参考实现（可替换） | 基于 `aip-sdk` 的参考 CLI。生产中由各平台自己的 CLI 替代（同样使用 `aip-sdk`） |
 
-`aip-cli`、`aip-sdk`、`aip-verify` 是协议的客户端库，可直接用于生产。`aip-idp` 和 `examples/` 是参考实现和演示。
+`aip-sdk` 和 `aip-verify` 是协议的核心库，可直接用于生产。`aip-cli`、`aip-idp` 和 `examples/` 是参考实现和演示。
 
 ---
 
