@@ -20,7 +20,7 @@ AIP 是一个开放协议，为 AI Agent 提供跨平台的身份认证、活动
 
 ### 一把密钥就是你的身份
 
-Agent 生成一对 Ed25519 密钥。私钥自己留着，永远不出本地环境。公钥注册到身份提供商（IdP）。就像把 SSH 公钥放到 GitHub 上。
+Agent 生成一对非对称密钥（默认 Ed25519，协议支持算法协商）。私钥自己留着，永远不出本地环境。公钥注册到身份提供商（IdP）。就像把 SSH 公钥放到 GitHub 上。
 
 每个 Agent 有一个全局唯一的 ID：
 
@@ -61,7 +61,7 @@ sequenceDiagram
 
 **第二步：创建 Agent（一次性）**
 
-主体认证通过后，开发者在 Agent 要运行的机器上创建 Agent 身份。CLI 在本地生成 Ed25519 密钥对，将公钥注册到 IdP，私钥留在本地——永远不离开这台机器。
+主体认证通过后，开发者在 Agent 要运行的机器上创建 Agent 身份。CLI 在本地生成密钥对（默认 Ed25519），将公钥注册到 IdP，私钥留在本地——永远不离开这台机器。
 
 ```mermaid
 sequenceDiagram
@@ -70,7 +70,7 @@ sequenceDiagram
     participant IdP as 身份提供商 (IdP)
 
     Dev->>CLI: aip agent create --name shark
-    CLI->>CLI: 生成 Ed25519 密钥对
+    CLI->>CLI: 生成密钥对（默认 Ed25519）
     CLI->>IdP: 注册公钥 + 主体信息
     IdP->>IdP: 存储 agent_id + 公钥<br/>关联到主体
     IdP-->>CLI: agent_id + kid
@@ -88,7 +88,7 @@ IdP 永远不会看到私钥。本地永远不会有其他主体的凭证。
 
 **第三步：Agent 认证（运行时，自动）**
 
-Agent 用自己的 Ed25519 私钥换取短期 JWT，全程无需人参与：
+Agent 用自己的私钥换取短期 JWT，全程无需人参与：
 
 ```mermaid
 sequenceDiagram
@@ -341,7 +341,7 @@ graph LR
 
 1. **开发者** 通过 CLI（或平台门户）向 IdP 请求注册主体。CLI 调用 `aip-sdk` 的身份管理 API
 2. **IdP** 通过 OAuth（GitHub、Google SSO 等）验证开发者身份
-3. **开发者** 通过 CLI 创建 Agent——`aip-sdk` 生成 Ed25519 密钥对，公钥注册到 IdP，私钥保存本地
+3. **开发者** 通过 CLI 创建 Agent——`aip-sdk` 生成密钥对（默认 Ed25519），公钥注册到 IdP，私钥保存本地
 4. **Agent** 运行时用 `aip-sdk` 加载私钥，向 IdP 签名换取短期 JWT
 5. **Agent** 带 JWT 访问 Hub
 6. **Hub** 用 `aip-verify` 从 IdP 获取公钥（缓存），本地验签 JWT → 知道 Agent 是谁、谁负责、能做什么
@@ -430,7 +430,7 @@ aip init --provider http://localhost:8000
 | **谁登录** | 人类（浏览器） | Agent（代码） |
 | **身份提供方** | Google, Okta, Auth0 | CoPaw, 自托管 IdP |
 | **依赖方** | Web 应用（Spotify, Notion） | Hub（交易平台、任务市场） |
-| **凭证** | 密码 + MFA → cookie | Ed25519 私钥 → 签名 |
+| **凭证** | 密码 + MFA → cookie | 私钥签名（默认 Ed25519） |
 | **令牌** | JWT（Google 签发） | JWT（IdP 签发） |
 | **发现** | `/.well-known/openid-configuration` | `/.well-known/aip-configuration` |
 | **验证** | Spotify 用 Google 缓存的公钥本地验签 | Hub 用 IdP 缓存的公钥本地验签 |
