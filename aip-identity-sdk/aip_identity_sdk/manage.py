@@ -108,7 +108,6 @@ def save_agent(
     kid: str,
     idp_url: str,
     private_key_bytes: bytes,
-    public_key_bytes: bytes,
     principal_id: str = "",
     principal_external_id: str = "",
     principal_name: str = "",
@@ -124,9 +123,6 @@ def save_agent(
     key_path = agent_dir / "private_key"
     key_path.write_bytes(private_key_bytes)
     os.chmod(key_path, 0o600)
-
-    # Public key
-    (agent_dir / "public_key").write_bytes(public_key_bytes)
 
     # Metadata
     meta = {
@@ -225,7 +221,6 @@ def create_agent(
         kid=kid,
         idp_url=idp_url,
         private_key_bytes=private_key_bytes,
-        public_key_bytes=public_key_bytes,
         principal_id=principal_id,
         principal_external_id=principal_external_id,
         principal_name=principal_name,
