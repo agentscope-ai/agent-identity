@@ -251,10 +251,10 @@ agent-identity/
 │   ├── 2026-03-25-agent-identity-protocol.en.md
 │   ├── 2026-03-25-agent-identity-protocol.zh.md
 │   └── 2026-03-25-agent-identity-commercialization.md
-├── aip-sdk/                         # [可交付] Agent 端 SDK（运行时 + 身份管理）
-├── aip-verify/                      # [可交付] Hub 端验证库
-├── aip-idp/                         # [参考实现] IdP (FastAPI + SQLite)
-├── aip-cli/                         # [参考实现] CLI 工具 (基于 aip-sdk)
+├── agent-id-sdk/                    # [可交付] Agent 端 SDK（运行时 + 身份管理）
+├── agent-id-verify/                 # [可交付] Hub 端验证库
+├── ref-idp/                         # [参考实现] IdP (FastAPI + SQLite)
+├── agent-id-cli/                    # [参考实现] CLI 工具 (基于 agent-id-sdk)
 └── examples/                        # 端到端演示
     ├── demo-hub/                    # 示例平台（验证 Agent 身份）
     └── demo-agent/                  # 示例 Agent（自动认证）
@@ -265,11 +265,11 @@ agent-identity/
 ```mermaid
 graph TB
     subgraph 开发者
-        CLI["aip-cli<br/>命令行工具"]
+        CLI["agent-id-cli<br/>命令行工具"]
     end
 
     subgraph IdP 服务
-        IDP["aip-idp<br/>身份提供方"]
+        IDP["ref-idp<br/>身份提供方"]
     end
 
     subgraph GitHub
@@ -303,8 +303,8 @@ graph TB
 
 | 模块 | 角色 | 谁在用 |
 |------|------|--------|
-| **aip-sdk** | Agent 端 SDK | Agent 运行时（加载私钥、获取 JWT、注入认证头）+ 身份管理 API（生成密钥、注册 Agent、主体认证）。**Agent 用它跑，CLI 用它管理。** 例：CoPaw CLI 用 `aip-sdk` 创建 Agent，Agent 运行时也用 `aip-sdk` 获取 JWT |
-| **aip-verify** | Hub 端验证库 | Hub 运行时：获取 IdP 公钥、验证 JWT 签名和声明。例：DojoZero Hub 用 `aip-verify` 验证参赛 Agent 身份 |
+| **agent-id-sdk** | Agent 端 SDK | Agent 运行时（加载私钥、获取 JWT、注入认证头）+ 身份管理 API（生成密钥、注册 Agent、主体认证）。**Agent 用它跑，CLI 用它管理。** 例：CoPaw CLI 用 `agent-id-sdk` 创建 Agent，Agent 运行时也用 `agent-id-sdk` 获取 JWT |
+| **agent-id-verify** | Hub 端验证库 | Hub 运行时：获取 IdP 公钥、验证 JWT 签名和声明。例：DojoZero Hub 用 `agent-id-verify` 验证参赛 Agent 身份 |
 
 ```mermaid
 graph LR
@@ -319,10 +319,10 @@ graph LR
         DEMOHUB["demo-hub<br/>（示例平台）"]
     end
 
-    AGENT --> SDK["aip-sdk"]
+    AGENT --> SDK["agent-id-sdk"]
     COPAW --> SDK
     AIPCLI --> SDK
-    DOJO --> VERIFY["aip-verify"]
+    DOJO --> VERIFY["agent-id-verify"]
     DEMOHUB --> VERIFY
 ```
 
@@ -330,21 +330,21 @@ graph LR
 
 | 模块 | 角色 | 生产中被谁替代 |
 |------|------|----------------|
-| **aip-idp** | 参考 IdP | CoPaw 平台、阿里云 Agent ID 等正式 IdP |
-| **aip-cli** | 参考 CLI | CoPaw CLI、其他平台 CLI（都基于 `aip-sdk`） |
-| **demo-hub** | 示例平台 | DojoZero Hub 等真实平台（都基于 `aip-verify`） |
-| **demo-agent** | 示例 Agent | 真实 Agent（都基于 `aip-sdk`） |
+| **ref-idp** | 参考 IdP | CoPaw 平台、阿里云 Agent ID 等正式 IdP |
+| **agent-id-cli** | 参考 CLI | CoPaw CLI、其他平台 CLI（都基于 `agent-id-sdk`） |
+| **demo-hub** | 示例平台 | DojoZero Hub 等真实平台（都基于 `agent-id-verify`） |
+| **demo-agent** | 示例 Agent | 真实 Agent（都基于 `agent-id-sdk`） |
 
-`aip-sdk` 和 `aip-verify` 是协议的两个核心库——一个给 Agent 端（含 CLI），一个给 Hub 端。不依赖任何特定 IdP 实现，只要 IdP 实现了 AIP 标准端点就能直接使用。`aip-cli` 和 `aip-idp` 是参考实现，帮助理解协议和本地开发。
+`agent-id-sdk` 和 `agent-id-verify` 是协议的两个核心库——一个给 Agent 端（含 CLI），一个给 Hub 端。不依赖任何特定 IdP 实现，只要 IdP 实现了 AIP 标准端点就能直接使用。`agent-id-cli` 和 `ref-idp` 是参考实现，帮助理解协议和本地开发。
 
 **数据流向：**
 
-1. **开发者** 通过 CLI（或平台门户）向 IdP 请求注册主体。CLI 调用 `aip-sdk` 的身份管理 API
+1. **开发者** 通过 CLI（或平台门户）向 IdP 请求注册主体。CLI 调用 `agent-id-sdk` 的身份管理 API
 2. **IdP** 通过 OAuth（GitHub、Google SSO 等）验证开发者身份
-3. **开发者** 通过 CLI 创建 Agent——`aip-sdk` 生成密钥对（默认 Ed25519），公钥注册到 IdP，私钥保存本地
-4. **Agent** 运行时用 `aip-sdk` 加载私钥，向 IdP 签名换取短期 JWT
+3. **开发者** 通过 CLI 创建 Agent——`agent-id-sdk` 生成密钥对（默认 Ed25519），公钥注册到 IdP，私钥保存本地
+4. **Agent** 运行时用 `agent-id-sdk` 加载私钥，向 IdP 签名换取短期 JWT
 5. **Agent** 带 JWT 访问 Hub
-6. **Hub** 用 `aip-verify` 从 IdP 获取公钥（缓存），本地验签 JWT → 知道 Agent 是谁、谁负责、能做什么
+6. **Hub** 用 `agent-id-verify` 从 IdP 获取公钥（缓存），本地验签 JWT → 知道 Agent 是谁、谁负责、能做什么
 
 ---
 
@@ -354,10 +354,10 @@ graph LR
 
 ```bash
 # 安装
-pip install -e aip-idp/ aip-cli/ aip-sdk/ aip-verify/
+pip install -e ref-idp/ agent-id-cli/ agent-id-sdk/ agent-id-verify/
 
 # 启动 IdP
-cd aip-idp && uvicorn aip_idp.main:app --port 8000
+cd ref-idp && uvicorn ref_idp.main:app --port 8000
 
 # 注册身份、创建 Agent（--dev 跳过 OAuth，本地测试用）
 aip init --provider http://localhost:8000 --dev --name alice
@@ -379,7 +379,7 @@ IdP 支持两种 OAuth 流程，适配不同客户端：
 
 ```bash
 # 配置 GitHub OAuth App Client ID
-# (在 aip-idp/aip_idp/config.py 或环境变量中设置)
+# (在 ref-idp/ref_idp/config.py 或环境变量中设置)
 settings.github_client_id = "your_client_id"
 
 # 启动 IdP 后，直接运行（不加 --dev）

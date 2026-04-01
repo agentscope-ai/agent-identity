@@ -4,7 +4,7 @@ Demo: A minimal hub that verifies AIP tokens.
 Start: uvicorn hub:app --port 8001
 """
 from fastapi import FastAPI, Request, HTTPException
-from aip_verify import AIPVerifier
+from agent_id_verify import AIPVerifier
 
 app = FastAPI(title="Demo Hub")
 
