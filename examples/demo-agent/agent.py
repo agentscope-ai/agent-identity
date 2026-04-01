@@ -10,7 +10,7 @@ Prerequisites:
   4. Run this script: python agent.py
 """
 import asyncio
-from agent_id_sdk import AIPIdentity, AIPClient
+from aip_identity_sdk import AIPIdentity, AIPClient
 
 
 async def main():
@@ -18,7 +18,7 @@ async def main():
     identity = AIPIdentity.from_file("demo-agent")
     client = AIPClient(identity)
 
-    hub_url = "http://localhost:8002"
+    hub_url = "http://localhost:8001"
 
     # Make an authenticated request
     response = await client.get(f"{hub_url}/api/whoami")

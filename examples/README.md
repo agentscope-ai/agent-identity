@@ -5,7 +5,7 @@
 ```mermaid
 graph LR
     subgraph "开发者 setup（一次性）"
-        CLI["agent-id-cli"]
+        CLI["aip-identity-cli"]
     end
 
     subgraph "IdP 服务"
@@ -17,11 +17,11 @@ graph LR
     end
 
     subgraph "Agent 运行时"
-        AGENT["demo-agent"] -->|uses| SDK["agent-id-sdk"]
+        AGENT["demo-agent"] -->|uses| SDK["aip-identity-sdk"]
     end
 
     subgraph "Hub 运行时"
-        HUB["demo-hub :8001"] -->|uses| VERIFY["agent-id-verify"]
+        HUB["demo-hub :8001"] -->|uses| VERIFY["aip-identity-verify"]
     end
 
     CLI -->|"① 请求注册主体"| IDP
@@ -34,12 +34,12 @@ graph LR
 
 | 组件 | 包 | 端口 | 类型 | 作用 |
 |------|-----|------|------|------|
-| **Demo Agent** | `agent-id-sdk` | — | 可交付库 | Agent 端 SDK：加载私钥，自动获取 JWT，发起认证请求。也提供身份管理 API 供各类 CLI/平台复用 |
-| **Demo Hub** | `agent-id-verify` | :8001 | 可交付库 | Hub 端验证库：验证 JWT，返回 Agent 身份，支持多 IdP |
+| **Demo Agent** | `aip-identity-sdk` | — | 可交付库 | Agent 端 SDK：加载私钥，自动获取 JWT，发起认证请求。也提供身份管理 API 供各类 CLI/平台复用 |
+| **Demo Hub** | `aip-identity-verify` | :8001 | 可交付库 | Hub 端验证库：验证 JWT，返回 Agent 身份，支持多 IdP |
 | **IdP** | `ref-idp` | :8000 | 参考实现（可替换） | 注册主体/Agent，签发 JWT。生产中由 CoPaw、阿里云等正式 IdP 替代 |
-| **CLI** | `agent-id-cli` | — | 参考实现（可替换） | 基于 `agent-id-sdk` 的参考 CLI。生产中由各平台自己的 CLI 替代（同样使用 `agent-id-sdk`） |
+| **CLI** | `aip-identity-cli` | — | 参考实现（可替换） | 基于 `aip-identity-sdk` 的参考 CLI。生产中由各平台自己的 CLI 替代（同样使用 `aip-identity-sdk`） |
 
-`agent-id-sdk` 和 `agent-id-verify` 是协议的核心库，可直接用于生产。`agent-id-cli`、`ref-idp` 和 `examples/` 是参考实现和演示。
+`aip-identity-sdk` 和 `aip-identity-verify` 是协议的核心库，可直接用于生产。`aip-identity-cli`、`ref-idp` 和 `examples/` 是参考实现和演示。
 
 ---
 
@@ -51,9 +51,9 @@ Local dev mode uses direct registration (no GitHub OAuth) so you can try the ful
 
 ```
 pip install -e ref-idp/
-pip install -e agent-id-sdk/
-pip install -e agent-id-verify/
-pip install -e agent-id-cli/
+pip install -e aip-identity-sdk/
+pip install -e aip-identity-verify/
+pip install -e aip-identity-cli/
 ```
 
 ### 2. Start the IdP

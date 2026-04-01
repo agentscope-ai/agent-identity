@@ -2,7 +2,7 @@
 
 from typer.testing import CliRunner
 
-from agent_id_cli.main import app
+from aip_identity_cli.main import app
 
 
 runner = CliRunner()
@@ -41,7 +41,7 @@ def test_agent_token_help():
 
 def test_crypto_generate_keypair():
     """Verify keypair generation produces correct sizes."""
-    from agent_id_cli.crypto import generate_keypair, compute_kid
+    from aip_identity_cli.crypto import generate_keypair, compute_kid
 
     priv, pub = generate_keypair()
     assert len(priv) == 32
@@ -52,7 +52,7 @@ def test_crypto_generate_keypair():
 
 def test_crypto_sign_and_verify():
     """Verify signing produces a valid hex signature."""
-    from agent_id_cli.crypto import generate_keypair, sign_token_request, compute_kid
+    from aip_identity_cli.crypto import generate_keypair, sign_token_request, compute_kid
 
     priv, pub = generate_keypair()
     kid = compute_kid(pub)
@@ -64,7 +64,7 @@ def test_crypto_sign_and_verify():
 def test_config_paths():
     """Verify config path helpers return expected locations."""
     from pathlib import Path
-    from agent_id_cli.config import AIP_HOME, get_config_path, get_agent_dir
+    from aip_identity_cli.config import AIP_HOME, get_config_path, get_agent_dir
 
     assert get_config_path() == AIP_HOME / "config.json"
     assert get_agent_dir("myagent") == AIP_HOME / "agents" / "myagent"

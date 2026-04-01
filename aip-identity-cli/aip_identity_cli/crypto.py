@@ -1,13 +1,13 @@
-"""Re-exports from agent_id_sdk.manage for backwards compatibility."""
+"""Re-exports from aip_identity_sdk.manage for backwards compatibility."""
 
-from agent_id_sdk.manage import (
+from aip_identity_sdk.manage import (
     generate_keypair,
     compute_kid,
     sign_token_request,
     load_private_key,
 )
 
-# save_private_key is not in agent_id_sdk.manage (save_agent handles it),
+# save_private_key is not in aip_identity_sdk.manage (save_agent handles it),
 # but kept here for any direct callers.
 import os
 from pathlib import Path

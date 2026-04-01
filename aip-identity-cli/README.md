@@ -1,11 +1,11 @@
-# agent-id-cli
+# aip-identity-cli
 
 CLI tool for managing AI agent identities using the Agent Identity Protocol.
 
 ## Installation
 
 ```
-pip install agent-id-cli
+pip install aip-identity-cli
 ```
 
 ## Quick Start
@@ -26,4 +26,4 @@ aip agent token --name my-agent --audience https://hub.example.com
 
 ## Documentation
 
-See the [Agent Identity Protocol](https://github.com/copaw/agent-identity) repository for full documentation.
+See the [Agent Identity Protocol](https://github.com/agentscope-ai/agent-identity) repository for full documentation.

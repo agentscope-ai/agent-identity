@@ -2,8 +2,8 @@
 
 import typer
 
-from agent_id_cli.commands.init import init
-from agent_id_cli.commands.agent import app as agent_app
+from aip_identity_cli.commands.init import init
+from aip_identity_cli.commands.agent import app as agent_app
 
 app = typer.Typer(help="AIP CLI — manage agent identities")
 app.command("init")(init)

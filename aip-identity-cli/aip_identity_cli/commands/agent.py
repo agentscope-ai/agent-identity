@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from agent_id_sdk.manage import (
+from aip_identity_sdk.manage import (
     load_config,
     get_agent_dir,
     create_agent,

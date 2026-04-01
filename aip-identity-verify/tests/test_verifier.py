@@ -12,8 +12,8 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
-from agent_id_verify.errors import AIPTokenExpired, AIPTokenInvalid, AIPProviderUntrusted
-from agent_id_verify.verifier import AIPVerifier
+from aip_identity_verify.errors import AIPTokenExpired, AIPTokenInvalid, AIPProviderUntrusted
+from aip_identity_verify.verifier import AIPVerifier
 
 
 # ---------------------------------------------------------------------------

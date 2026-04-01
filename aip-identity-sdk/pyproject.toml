@@ -3,11 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-id-sdk"
+name = "aip-identity-sdk"
 version = "0.1.0"
 description = "Agent Identity Protocol - Client SDK"
 license = "Apache-2.0"
-authors = [{name = "CoPaw", email = "dev@copaw.ai"}]
+authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -34,6 +34,6 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/copaw/agent-identity"
-Documentation = "https://github.com/copaw/agent-identity"
-Repository = "https://github.com/copaw/agent-identity"
+Homepage = "https://github.com/agentscope-ai/agent-identity"
+Documentation = "https://github.com/agentscope-ai/agent-identity"
+Repository = "https://github.com/agentscope-ai/agent-identity"
