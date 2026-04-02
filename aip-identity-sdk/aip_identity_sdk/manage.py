@@ -153,6 +153,7 @@ def load_private_key(path: Path) -> bytes:
 @dataclass
 class RegisteredAgent:
     """Result of registering an agent with an IdP."""
+
     agent_id: str
     kid: str
 
@@ -237,6 +238,7 @@ def create_agent(
 @dataclass
 class DeviceFlowChallenge:
     """Returned by device_flow_init — display to the user."""
+
     device_code: str
     user_code: str
     verification_uri: str
@@ -247,6 +249,7 @@ class DeviceFlowChallenge:
 @dataclass
 class PrincipalCredentials:
     """Returned after successful authentication."""
+
     principal_id: str
     management_token: str
     external_id: str

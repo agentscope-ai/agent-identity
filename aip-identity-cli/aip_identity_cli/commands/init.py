@@ -93,9 +93,7 @@ def init(
     """Initialize AIP CLI — authenticate with an identity provider."""
     config_path = get_config_path()
     if config_path.exists():
-        overwrite = typer.confirm(
-            "AIP CLI is already initialized. Overwrite?"
-        )
+        overwrite = typer.confirm("AIP CLI is already initialized. Overwrite?")
         if not overwrite:
             raise typer.Abort()
 

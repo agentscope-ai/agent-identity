@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -57,7 +57,10 @@ class AIPVerifier:
     # -- JWKS fetching --------------------------------------------------------
 
     async def _fetch_jwks(
-        self, provider_domain: str, *, force_refresh: bool = False,
+        self,
+        provider_domain: str,
+        *,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         """Fetch and cache public keys from the provider's JWKS.
 
@@ -83,7 +86,9 @@ class AIPVerifier:
                     return keys
 
         async with httpx.AsyncClient() as client:
-            base = self._provider_urls.get(provider_domain, f"https://{provider_domain}")
+            base = self._provider_urls.get(
+                provider_domain, f"https://{provider_domain}"
+            )
 
             # Step 1: discover JWKS URI.
             config_url = f"{base}/.well-known/aip-configuration"
@@ -149,9 +154,7 @@ class AIPVerifier:
 
         # Decode payload (unverified) to get iss.
         try:
-            unverified_payload = jwt.decode(
-                token, options={"verify_signature": False}
-            )
+            unverified_payload = jwt.decode(token, options={"verify_signature": False})
         except jwt.exceptions.DecodeError as exc:
             raise AIPTokenInvalid(f"Malformed JWT payload: {exc}") from exc
 
@@ -163,9 +166,7 @@ class AIPVerifier:
 
         # Check trusted providers.
         if provider_domain not in self._trusted_providers:
-            raise AIPProviderUntrusted(
-                f"Provider '{provider_domain}' is not trusted"
-            )
+            raise AIPProviderUntrusted(f"Provider '{provider_domain}' is not trusted")
 
         # Fetch JWKS and find the key. If the kid is missing, refetch
         # once in case the IDP rotated keys since we last cached.

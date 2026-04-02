@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -84,6 +83,7 @@ class AIPActivityReporter:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _jcs_canonicalize(obj: Any) -> bytes:
     """Produce a JCS (RFC 8785) canonical form of a JSON-serialisable object.
 
@@ -91,7 +91,9 @@ def _jcs_canonicalize(obj: Any) -> bytes:
     (strings, numbers, booleans, null, dicts, lists).  Keys are sorted
     lexicographically and no extra whitespace is emitted.
     """
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
 
 
 def _load_private_key(data: bytes) -> Ed25519PrivateKey:
@@ -112,6 +114,4 @@ def _load_private_key(data: bytes) -> Ed25519PrivateKey:
     except Exception:
         pass
 
-    raise ValueError(
-        f"Unable to load Ed25519 private key (length={len(data)})"
-    )
+    raise ValueError(f"Unable to load Ed25519 private key (length={len(data)})")

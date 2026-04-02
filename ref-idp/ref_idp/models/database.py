@@ -1,7 +1,5 @@
 """SQLAlchemy async database setup and models."""
 
-import datetime
-
 from sqlalchemy import (
     Boolean,
     Column,

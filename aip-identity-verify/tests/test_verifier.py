@@ -5,14 +5,12 @@ import time
 import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import (
-    Encoding,
-    NoEncryption,
-    PrivateFormat,
-    PublicFormat,
-)
 
-from aip_identity_verify.errors import AIPTokenExpired, AIPTokenInvalid, AIPProviderUntrusted
+from aip_identity_verify.errors import (
+    AIPTokenExpired,
+    AIPTokenInvalid,
+    AIPProviderUntrusted,
+)
 from aip_identity_verify.verifier import AIPVerifier
 
 
@@ -75,12 +73,15 @@ async def test_expired_token():
     private_key, public_key = _make_keypair()
     verifier = _build_verifier(public_key)
 
-    token = _encode_jwt(private_key, {
-        "sub": "agent-001",
-        "iss": f"https://{PROVIDER_DOMAIN}",
-        "aud": AUDIENCE,
-        "exp": int(time.time()) - 3600,  # expired 1 hour ago
-    })
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "agent-001",
+            "iss": f"https://{PROVIDER_DOMAIN}",
+            "aud": AUDIENCE,
+            "exp": int(time.time()) - 3600,  # expired 1 hour ago
+        },
+    )
 
     with pytest.raises(AIPTokenExpired):
         await verifier.verify(f"AIP {token}")
@@ -91,12 +92,15 @@ async def test_wrong_audience():
     private_key, public_key = _make_keypair()
     verifier = _build_verifier(public_key)
 
-    token = _encode_jwt(private_key, {
-        "sub": "agent-001",
-        "iss": f"https://{PROVIDER_DOMAIN}",
-        "aud": "https://wrong-audience.example.com",
-        "exp": int(time.time()) + 3600,
-    })
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "agent-001",
+            "iss": f"https://{PROVIDER_DOMAIN}",
+            "aud": "https://wrong-audience.example.com",
+            "exp": int(time.time()) + 3600,
+        },
+    )
 
     with pytest.raises(AIPTokenInvalid, match="[Aa]udience"):
         await verifier.verify(f"AIP {token}")
@@ -107,12 +111,15 @@ async def test_untrusted_provider():
     private_key, public_key = _make_keypair()
     verifier = _build_verifier(public_key, trusted=False)
 
-    token = _encode_jwt(private_key, {
-        "sub": "agent-001",
-        "iss": f"https://{PROVIDER_DOMAIN}",
-        "aud": AUDIENCE,
-        "exp": int(time.time()) + 3600,
-    })
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "agent-001",
+            "iss": f"https://{PROVIDER_DOMAIN}",
+            "aud": AUDIENCE,
+            "exp": int(time.time()) + 3600,
+        },
+    )
 
     with pytest.raises(AIPProviderUntrusted):
         await verifier.verify(f"AIP {token}")
@@ -123,16 +130,19 @@ async def test_valid_token():
     private_key, public_key = _make_keypair()
     verifier = _build_verifier(public_key)
 
-    token = _encode_jwt(private_key, {
-        "sub": "agent-001",
-        "agent_name": "TestAgent",
-        "iss": f"https://{PROVIDER_DOMAIN}",
-        "aud": AUDIENCE,
-        "exp": int(time.time()) + 3600,
-        "principal": {"type": "user", "id": "user-1", "name": "Alice"},
-        "capabilities": ["read", "write"],
-        "scopes": {"data": "full"},
-    })
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "agent-001",
+            "agent_name": "TestAgent",
+            "iss": f"https://{PROVIDER_DOMAIN}",
+            "aud": AUDIENCE,
+            "exp": int(time.time()) + 3600,
+            "principal": {"type": "user", "id": "user-1", "name": "Alice"},
+            "capabilities": ["read", "write"],
+            "scopes": {"data": "full"},
+        },
+    )
 
     agent = await verifier.verify(f"AIP {token}")
     assert agent.agent_id == "agent-001"

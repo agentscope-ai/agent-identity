@@ -5,7 +5,7 @@ import secrets
 import uuid
 
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -62,7 +62,9 @@ async def register_agent(body: RegisterAgentRequest, request: Request):
 
     # The principal in the token must match the requested principal_id
     if token_payload["sub"] != body.principal_id:
-        raise HTTPException(403, "Token principal does not match requested principal_id")
+        raise HTTPException(
+            403, "Token principal does not match requested principal_id"
+        )
 
     # Validate public key hex
     try:
@@ -114,9 +116,7 @@ async def register_agent(body: RegisterAgentRequest, request: Request):
 async def get_agent(agent_id: str):
     """Get agent public info."""
     async with async_session() as session:
-        result = await session.execute(
-            select(Agent).where(Agent.agent_id == agent_id)
-        )
+        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
         agent = result.scalar_one_or_none()
         if not agent:
             raise HTTPException(404, "Agent not found")
@@ -140,9 +140,7 @@ async def get_agent(agent_id: str):
         "agent_id": agent.agent_id,
         "name": agent.name,
         "principal_type": principal.type if principal else None,
-        "public_keys": [
-            {"kid": k.kid, "public_key": k.public_key_bytes} for k in keys
-        ],
+        "public_keys": [{"kid": k.kid, "public_key": k.public_key_bytes} for k in keys],
         "created_at": str(agent.created_at),
     }
 
@@ -162,9 +160,7 @@ async def add_key(agent_id: str, body: AddKeyRequest, request: Request):
     kid = compute_kid(pk_bytes)
 
     async with async_session() as session:
-        result = await session.execute(
-            select(Agent).where(Agent.agent_id == agent_id)
-        )
+        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
         agent = result.scalar_one_or_none()
         if not agent:
             raise HTTPException(404, "Agent not found")
@@ -191,9 +187,7 @@ async def revoke_key(agent_id: str, kid: str, request: Request):
     token_payload = _verify_management_token(request)
 
     async with async_session() as session:
-        result = await session.execute(
-            select(Agent).where(Agent.agent_id == agent_id)
-        )
+        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
         agent = result.scalar_one_or_none()
         if not agent:
             raise HTTPException(404, "Agent not found")
@@ -214,6 +208,7 @@ async def revoke_key(agent_id: str, kid: str, request: Request):
 
         key.is_active = False
         from datetime import datetime, timezone
+
         key.revoked_at = datetime.now(timezone.utc)
         await session.commit()
 

@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"ref-idp/ref_idp/routes/*.py" = ["E712"]
+"ref-idp/ref_idp/models/*.py" = ["E712"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+exclude = [
+    "**/.venv",
+    "**/dist",
+    "**/build",
+    "ref-idp",
+    "examples",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"

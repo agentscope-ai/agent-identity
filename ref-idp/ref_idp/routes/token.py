@@ -90,11 +90,15 @@ async def exchange_token(body: TokenRequest, request: Request):
     domain = app.state.idp_domain
     ttl = app.state.token_ttl_seconds
 
-    principal_claim = {
-        "type": principal.type,
-        "id": principal.id,
-        "name": principal.name,
-    } if principal else {"type": "unknown", "id": "", "name": ""}
+    principal_claim = (
+        {
+            "type": principal.type,
+            "id": principal.id,
+            "name": principal.name,
+        }
+        if principal
+        else {"type": "unknown", "id": "", "name": ""}
+    )
 
     token = create_agent_token(
         agent_id=body.agent_id,

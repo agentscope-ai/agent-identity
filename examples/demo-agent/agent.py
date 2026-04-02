@@ -9,6 +9,7 @@ Prerequisites:
      aip agent create --name demo-agent
   4. Run this script: python agent.py
 """
+
 import asyncio
 from aip_identity_sdk import AIPIdentity, AIPClient
 

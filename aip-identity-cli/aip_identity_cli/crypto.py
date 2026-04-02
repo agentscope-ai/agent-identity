@@ -1,16 +1,14 @@
 """Re-exports from aip_identity_sdk.manage for backwards compatibility."""
 
-from aip_identity_sdk.manage import (
-    generate_keypair,
-    compute_kid,
-    sign_token_request,
-    load_private_key,
-)
-
-# save_private_key is not in aip_identity_sdk.manage (save_agent handles it),
-# but kept here for any direct callers.
 import os
 from pathlib import Path
+
+from aip_identity_sdk.manage import (  # noqa: F401
+    compute_kid,
+    generate_keypair,
+    load_private_key,
+    sign_token_request,
+)
 
 
 def save_private_key(path: Path, private_key_bytes: bytes) -> None:

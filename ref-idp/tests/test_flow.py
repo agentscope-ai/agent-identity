@@ -7,7 +7,7 @@
 """
 
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx as httpx_lib
 import jwt as pyjwt
@@ -32,7 +32,11 @@ async def client(tmp_path):
 
     # Re-create the engine with the new URL
     from ref_idp.models import database as db_module
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
 
     db_module.engine = create_async_engine(settings.database_url, echo=False)
     db_module.async_session = async_sessionmaker(
@@ -44,7 +48,9 @@ async def client(tmp_path):
     # Trigger startup manually
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="https://test.aip.example") as ac:
+        async with AsyncClient(
+            transport=transport, base_url="https://test.aip.example"
+        ) as ac:
             yield ac
 
 
@@ -53,11 +59,14 @@ async def test_full_flow(client):
     """Test the complete AIP flow: register principal, create agent, get token."""
 
     # --- Step 1: Register a principal ---
-    resp = await client.post("/aip/auth/register", json={
-        "type": "human",
-        "name": "Alice",
-        "external_id": "github:alice",
-    })
+    resp = await client.post(
+        "/aip/auth/register",
+        json={
+            "type": "human",
+            "name": "Alice",
+            "external_id": "github:alice",
+        },
+    )
     assert resp.status_code == 200, resp.text
     principal_data = resp.json()
     principal_id = principal_data["principal_id"]
@@ -73,11 +82,15 @@ async def test_full_flow(client):
     )
     agent_public_hex = agent_public_bytes.hex()
 
-    resp = await client.post("/aip/agents", json={
-        "name": "alice-assistant",
-        "public_key": agent_public_hex,
-        "principal_id": principal_id,
-    }, headers={"Authorization": f"Bearer {mgmt_token}"})
+    resp = await client.post(
+        "/aip/agents",
+        json={
+            "name": "alice-assistant",
+            "public_key": agent_public_hex,
+            "principal_id": principal_id,
+        },
+        headers={"Authorization": f"Bearer {mgmt_token}"},
+    )
     assert resp.status_code == 200, resp.text
     agent_data = resp.json()
     agent_id = agent_data["agent_id"]
@@ -101,20 +114,25 @@ async def test_full_flow(client):
     signature = agent_private_key.sign(message.encode("utf-8"))
     signature_hex = signature.hex()
 
-    resp = await client.post("/aip/token", json={
-        "agent_id": agent_id,
-        "kid": kid,
-        "audience": audience,
-        "timestamp": timestamp,
-        "signature": signature_hex,
-    })
+    resp = await client.post(
+        "/aip/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": signature_hex,
+        },
+    )
     assert resp.status_code == 200, resp.text
     token_data = resp.json()
     token = token_data["token"]
     assert token_data["expires_at"] > int(time.time())
 
     # --- Step 4: Decode and verify claims ---
-    claims = pyjwt.decode(token, options={"verify_signature": False}, algorithms=["EdDSA"])
+    claims = pyjwt.decode(
+        token, options={"verify_signature": False}, algorithms=["EdDSA"]
+    )
     assert claims["iss"] == "https://test.aip.example"
     assert claims["sub"] == agent_id
     assert claims["aud"] == audience
@@ -130,11 +148,14 @@ async def test_invalid_signature_rejected(client):
     """Token request with wrong signature should be rejected."""
 
     # Register principal
-    resp = await client.post("/aip/auth/register", json={
-        "type": "human",
-        "name": "Bob",
-        "external_id": "github:bob",
-    })
+    resp = await client.post(
+        "/aip/auth/register",
+        json={
+            "type": "human",
+            "name": "Bob",
+            "external_id": "github:bob",
+        },
+    )
     principal_data = resp.json()
     principal_id = principal_data["principal_id"]
     mgmt_token = principal_data["management_token"]
@@ -146,11 +167,15 @@ async def test_invalid_signature_rejected(client):
         format=serialization.PublicFormat.Raw,
     )
 
-    resp = await client.post("/aip/agents", json={
-        "name": "bob-agent",
-        "public_key": agent_public_bytes.hex(),
-        "principal_id": principal_id,
-    }, headers={"Authorization": f"Bearer {mgmt_token}"})
+    resp = await client.post(
+        "/aip/agents",
+        json={
+            "name": "bob-agent",
+            "public_key": agent_public_bytes.hex(),
+            "principal_id": principal_id,
+        },
+        headers={"Authorization": f"Bearer {mgmt_token}"},
+    )
     agent_data = resp.json()
     agent_id = agent_data["agent_id"]
     kid = agent_data["kid"]
@@ -162,13 +187,16 @@ async def test_invalid_signature_rejected(client):
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
     bad_signature = wrong_key.sign(message.encode("utf-8")).hex()
 
-    resp = await client.post("/aip/token", json={
-        "agent_id": agent_id,
-        "kid": kid,
-        "audience": audience,
-        "timestamp": timestamp,
-        "signature": bad_signature,
-    })
+    resp = await client.post(
+        "/aip/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": bad_signature,
+        },
+    )
     assert resp.status_code == 401
 
 
@@ -177,11 +205,14 @@ async def test_key_revocation(client):
     """Revoking a key should prevent token issuance."""
 
     # Register principal + agent
-    resp = await client.post("/aip/auth/register", json={
-        "type": "org",
-        "name": "Acme Corp",
-        "external_id": "github:acme-org",
-    })
+    resp = await client.post(
+        "/aip/auth/register",
+        json={
+            "type": "org",
+            "name": "Acme Corp",
+            "external_id": "github:acme-org",
+        },
+    )
     principal_data = resp.json()
     principal_id = principal_data["principal_id"]
     mgmt_token = principal_data["management_token"]
@@ -192,11 +223,15 @@ async def test_key_revocation(client):
         format=serialization.PublicFormat.Raw,
     )
 
-    resp = await client.post("/aip/agents", json={
-        "name": "acme-bot",
-        "public_key": agent_public_bytes.hex(),
-        "principal_id": principal_id,
-    }, headers={"Authorization": f"Bearer {mgmt_token}"})
+    resp = await client.post(
+        "/aip/agents",
+        json={
+            "name": "acme-bot",
+            "public_key": agent_public_bytes.hex(),
+            "principal_id": principal_id,
+        },
+        headers={"Authorization": f"Bearer {mgmt_token}"},
+    )
     agent_data = resp.json()
     agent_id = agent_data["agent_id"]
     kid = agent_data["kid"]
@@ -215,13 +250,16 @@ async def test_key_revocation(client):
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
     signature = agent_private_key.sign(message.encode("utf-8")).hex()
 
-    resp = await client.post("/aip/token", json={
-        "agent_id": agent_id,
-        "kid": kid,
-        "audience": audience,
-        "timestamp": timestamp,
-        "signature": signature,
-    })
+    resp = await client.post(
+        "/aip/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": signature,
+        },
+    )
     assert resp.status_code == 404  # key no longer active
 
 
@@ -253,6 +291,7 @@ async def test_discovery_endpoints(client):
 async def test_device_flow(client):
     """Test GitHub OAuth Device Flow: start, poll (pending), poll (success)."""
     from ref_idp.config import settings
+
     settings.github_client_id = "test_client_id"
 
     poll_count = 0
@@ -260,31 +299,40 @@ async def test_device_flow(client):
     async def mock_gh_post(url, **kwargs):
         nonlocal poll_count
         if "device/code" in url:
-            return httpx_lib.Response(200, json={
-                "device_code": "test_device_code_123",
-                "user_code": "ABCD-1234",
-                "verification_uri": "https://github.com/login/device",
-                "expires_in": 900,
-                "interval": 5,
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "device_code": "test_device_code_123",
+                    "user_code": "ABCD-1234",
+                    "verification_uri": "https://github.com/login/device",
+                    "expires_in": 900,
+                    "interval": 5,
+                },
+            )
         elif "access_token" in url:
             poll_count += 1
             if poll_count <= 1:
                 return httpx_lib.Response(200, json={"error": "authorization_pending"})
-            return httpx_lib.Response(200, json={
-                "access_token": "gho_test_token_abc",
-                "token_type": "bearer",
-                "scope": "read:user",
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "access_token": "gho_test_token_abc",
+                    "token_type": "bearer",
+                    "scope": "read:user",
+                },
+            )
         return httpx_lib.Response(404)
 
     async def mock_gh_get(url, **kwargs):
         if "api.github.com/user" in url:
-            return httpx_lib.Response(200, json={
-                "login": "deviceflow_alice",
-                "name": "Alice Smith",
-                "id": 12345,
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "login": "deviceflow_alice",
+                    "name": "Alice Smith",
+                    "id": 12345,
+                },
+            )
         return httpx_lib.Response(404)
 
     with (
@@ -333,41 +381,54 @@ async def test_device_flow(client):
 async def test_device_flow_existing_principal(client):
     """Device flow with an already-registered GitHub user logs them in."""
     from ref_idp.config import settings
+
     settings.github_client_id = "test_client_id"
 
     # Pre-register the principal via direct endpoint
-    resp = await client.post("/aip/auth/register", json={
-        "type": "human",
-        "name": "Bob (original)",
-        "external_id": "github:deviceflow_bob",
-    })
+    resp = await client.post(
+        "/aip/auth/register",
+        json={
+            "type": "human",
+            "name": "Bob (original)",
+            "external_id": "github:deviceflow_bob",
+        },
+    )
     assert resp.status_code == 200
     original_principal_id = resp.json()["principal_id"]
 
     async def mock_gh_post(url, **kwargs):
         if "device/code" in url:
-            return httpx_lib.Response(200, json={
-                "device_code": "test_dc_2",
-                "user_code": "EFGH-5678",
-                "verification_uri": "https://github.com/login/device",
-                "expires_in": 900,
-                "interval": 5,
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "device_code": "test_dc_2",
+                    "user_code": "EFGH-5678",
+                    "verification_uri": "https://github.com/login/device",
+                    "expires_in": 900,
+                    "interval": 5,
+                },
+            )
         elif "access_token" in url:
-            return httpx_lib.Response(200, json={
-                "access_token": "gho_test_2",
-                "token_type": "bearer",
-                "scope": "read:user",
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "access_token": "gho_test_2",
+                    "token_type": "bearer",
+                    "scope": "read:user",
+                },
+            )
         return httpx_lib.Response(404)
 
     async def mock_gh_get(url, **kwargs):
         if "api.github.com/user" in url:
-            return httpx_lib.Response(200, json={
-                "login": "deviceflow_bob",
-                "name": "Bob",
-                "id": 67890,
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "login": "deviceflow_bob",
+                    "name": "Bob",
+                    "id": 67890,
+                },
+            )
         return httpx_lib.Response(404)
 
     with (
@@ -392,6 +453,7 @@ async def test_device_flow_existing_principal(client):
 async def test_device_flow_not_configured(client):
     """Device flow returns 501 when github_client_id is not set."""
     from ref_idp.config import settings
+
     settings.github_client_id = ""
 
     resp = await client.post("/aip/auth/device")
@@ -407,6 +469,7 @@ async def test_device_flow_not_configured(client):
 async def test_web_oauth_flow(client):
     """Test Authorization Code + PKCE flow: start, callback, principal created."""
     from ref_idp.config import settings
+
     settings.github_client_id = "test_client_id"
     settings.github_client_secret = "test_secret"
 
@@ -426,20 +489,26 @@ async def test_web_oauth_flow(client):
     # Step 2: Simulate GitHub callback with an authorization code
     async def mock_gh_post(url, **kwargs):
         if "access_token" in url:
-            return httpx_lib.Response(200, json={
-                "access_token": "gho_web_token",
-                "token_type": "bearer",
-                "scope": "read:user",
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "access_token": "gho_web_token",
+                    "token_type": "bearer",
+                    "scope": "read:user",
+                },
+            )
         return httpx_lib.Response(404)
 
     async def mock_gh_get(url, **kwargs):
         if "api.github.com/user" in url:
-            return httpx_lib.Response(200, json={
-                "login": "web_carol",
-                "name": "Carol Web",
-                "id": 99999,
-            })
+            return httpx_lib.Response(
+                200,
+                json={
+                    "login": "web_carol",
+                    "name": "Carol Web",
+                    "id": 99999,
+                },
+            )
         return httpx_lib.Response(404)
 
     with (
@@ -455,7 +524,10 @@ async def test_web_oauth_flow(client):
         assert location.startswith("https://portal.example.com/auth/done")
         assert "principal_id=" in location
         assert "management_token=" in location
-        assert "external_id=github%3Aweb_carol" in location or "external_id=github:web_carol" in location
+        assert (
+            "external_id=github%3Aweb_carol" in location
+            or "external_id=github:web_carol" in location
+        )
 
     # Verify the principal was persisted
     resp = await client.post(
@@ -469,6 +541,7 @@ async def test_web_oauth_flow(client):
 async def test_web_oauth_invalid_state(client):
     """Callback with unknown state should fail."""
     from ref_idp.config import settings
+
     settings.github_client_id = "test_client_id"
 
     resp = await client.get(

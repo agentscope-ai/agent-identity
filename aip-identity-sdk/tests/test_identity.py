@@ -67,9 +67,7 @@ def test_sign_token_request_produces_hex():
 
 def test_from_env_loads_identity(monkeypatch):
     private_key = Ed25519PrivateKey.generate()
-    raw = private_key.private_bytes(
-        Encoding.Raw, PrivateFormat.Raw, NoEncryption()
-    )
+    raw = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
 
     monkeypatch.setenv("AIP_AGENT_ID", "agent-env")
     monkeypatch.setenv("AIP_AGENT_KID", "key-env")

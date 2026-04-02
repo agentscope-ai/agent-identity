@@ -7,7 +7,6 @@ from pathlib import Path
 import typer
 
 from aip_identity_sdk.manage import (
-    load_config,
     get_agent_dir,
     create_agent,
     load_private_key,
@@ -40,7 +39,14 @@ def create(
     principal_name = meta.get("principal_name", "")
 
     typer.echo(f"\u2713 Agent created: {registered.agent_id}")
-    typer.echo(f"  Principal: {external_id or meta.get('principal_id', '')}" + (f" ({principal_name})" if principal_name and principal_name != external_id else ""))
+    typer.echo(
+        f"  Principal: {external_id or meta.get('principal_id', '')}"
+        + (
+            f" ({principal_name})"
+            if principal_name and principal_name != external_id
+            else ""
+        )
+    )
     typer.echo(f"  Private key saved to {agent_dir}/")
 
 

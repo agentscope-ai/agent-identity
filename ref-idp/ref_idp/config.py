@@ -12,7 +12,9 @@ class Settings:
     token_ttl_seconds: int = 4 * 60 * 60  # 4 hours
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
     github_client_id: str = ""  # GitHub OAuth App client ID
-    github_client_secret: str = ""  # GitHub OAuth App client secret (for web auth code flow)
+    github_client_secret: str = (
+        ""  # GitHub OAuth App client secret (for web auth code flow)
+    )
 
     def __post_init__(self):
         """Override defaults from environment variables."""

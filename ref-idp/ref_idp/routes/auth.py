@@ -79,7 +79,9 @@ def _make_management_token(principal_id: str, request: Request) -> str:
 
 
 async def _get_or_create_principal(
-    external_id: str, name: str, principal_type: str = "human",
+    external_id: str,
+    name: str,
+    principal_type: str = "human",
 ) -> tuple[str, bool]:
     """Return (principal_id, created). Creates the principal if it doesn't exist."""
     async with async_session() as session:
@@ -91,12 +93,14 @@ async def _get_or_create_principal(
             return existing.id, False
 
         principal_id = str(uuid.uuid4())
-        session.add(Principal(
-            id=principal_id,
-            type=principal_type,
-            name=name,
-            external_id=external_id,
-        ))
+        session.add(
+            Principal(
+                id=principal_id,
+                type=principal_type,
+                name=name,
+                external_id=external_id,
+            )
+        )
         await session.commit()
         return principal_id, True
 
@@ -234,7 +238,9 @@ async def authz_code_callback(code: str, state: str, request: Request):
     # Register or login the principal
     external_id = f"github:{github_login}"
     principal_id, _ = await _get_or_create_principal(
-        external_id=external_id, name=github_name, principal_type="human",
+        external_id=external_id,
+        name=github_name,
+        principal_type="human",
     )
 
     mgmt_token = _make_management_token(principal_id, request)
@@ -358,7 +364,9 @@ async def device_flow_token(body: DeviceTokenRequest, request: Request):
     # Register or login the principal
     external_id = f"github:{github_login}"
     principal_id, _ = await _get_or_create_principal(
-        external_id=external_id, name=github_name, principal_type="human",
+        external_id=external_id,
+        name=github_name,
+        principal_type="human",
     )
 
     mgmt_token = _make_management_token(principal_id, request)
@@ -387,7 +395,9 @@ async def register_principal(body: RegisterPrincipalRequest, request: Request):
             select(Principal).where(Principal.external_id == body.external_id)
         )
         if existing_result.scalar_one_or_none():
-            raise HTTPException(409, "Principal already exists. Use /aip/auth/login instead.")
+            raise HTTPException(
+                409, "Principal already exists. Use /aip/auth/login instead."
+            )
 
         principal_id = str(uuid.uuid4())
         principal = Principal(

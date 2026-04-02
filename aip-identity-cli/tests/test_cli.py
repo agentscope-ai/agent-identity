@@ -52,18 +52,23 @@ def test_crypto_generate_keypair():
 
 def test_crypto_sign_and_verify():
     """Verify signing produces a valid hex signature."""
-    from aip_identity_cli.crypto import generate_keypair, sign_token_request, compute_kid
+    from aip_identity_cli.crypto import (
+        generate_keypair,
+        sign_token_request,
+        compute_kid,
+    )
 
     priv, pub = generate_keypair()
     kid = compute_kid(pub)
-    sig = sign_token_request(priv, "agent-123", kid, "https://example.com", "1700000000")
+    sig = sign_token_request(
+        priv, "agent-123", kid, "https://example.com", "1700000000"
+    )
     # Ed25519 signature is 64 bytes = 128 hex chars
     assert len(sig) == 128
 
 
 def test_config_paths():
     """Verify config path helpers return expected locations."""
-    from pathlib import Path
     from aip_identity_cli.config import AIP_HOME, get_config_path, get_agent_dir
 
     assert get_config_path() == AIP_HOME / "config.json"

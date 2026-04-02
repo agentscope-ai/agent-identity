@@ -44,9 +44,7 @@ class AIPIdentity:
         if agent_dir is None:
             dirs = sorted(base.iterdir()) if base.exists() else []
             if not dirs:
-                raise FileNotFoundError(
-                    f"No agent directories found under {base}"
-                )
+                raise FileNotFoundError(f"No agent directories found under {base}")
             agent_dir = dirs[0]
         else:
             agent_dir = Path(agent_dir)
@@ -122,6 +120,7 @@ class AIPIdentity:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_private_key(data: bytes) -> Ed25519PrivateKey:
     """Attempt to interpret *data* as PEM, raw 32-byte seed, or DER."""
     # PEM
@@ -145,6 +144,5 @@ def _load_private_key(data: bytes) -> Ed25519PrivateKey:
         pass
 
     raise ValueError(
-        "Unable to load Ed25519 private key from provided bytes "
-        f"(length={len(data)})"
+        f"Unable to load Ed25519 private key from provided bytes (length={len(data)})"
     )
