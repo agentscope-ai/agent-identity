@@ -42,11 +42,13 @@ class AIPVerifier:
         trusted_providers: list[str],
         audience: str,
         cache_ttl: int = 3600,
+        clock_skew_seconds: int = 30,
         provider_urls: dict[str, str] | None = None,
     ) -> None:
         self._trusted_providers = [_normalise_domain(p) for p in trusted_providers]
         self._audience = audience
         self._cache_ttl = cache_ttl
+        self._clock_skew_seconds = clock_skew_seconds
         # Optional override: provider_domain -> base URL (for local dev / non-https)
         self._provider_urls = provider_urls or {}
         # provider_domain -> (keys_by_kid, fetched_at)
@@ -54,8 +56,18 @@ class AIPVerifier:
 
     # -- JWKS fetching --------------------------------------------------------
 
-    async def _fetch_jwks(self, provider_domain: str) -> dict[str, Any]:
-        """Fetch and cache Ed25519 public keys from the provider's JWKS.
+    async def _fetch_jwks(
+        self, provider_domain: str, *, force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Fetch and cache public keys from the provider's JWKS.
+
+        Supports EC (P-256) and OKP (Ed25519) key types.
+
+        Args:
+            provider_domain: The IDP domain to fetch keys from.
+            force_refresh: If True, bypass the cache and refetch from the IDP.
+                Used when a token references a kid not in the cached JWKS
+                (e.g. after key rotation).
 
         Discovery flow:
         1. GET https://{provider_domain}/.well-known/aip-configuration
@@ -63,11 +75,12 @@ class AIPVerifier:
         3. GET {jwks_uri} and parse the JWKS key set.
         """
         now = time.time()
-        cached = self._jwks_cache.get(provider_domain)
-        if cached is not None:
-            keys, fetched_at = cached
-            if now - fetched_at < self._cache_ttl:
-                return keys
+        if not force_refresh:
+            cached = self._jwks_cache.get(provider_domain)
+            if cached is not None:
+                keys, fetched_at = cached
+                if now - fetched_at < self._cache_ttl:
+                    return keys
 
         async with httpx.AsyncClient() as client:
             base = self._provider_urls.get(provider_domain, f"https://{provider_domain}")
@@ -92,11 +105,18 @@ class AIPVerifier:
 
         keys: dict[str, Any] = {}
         for key_data in jwks_data.get("keys", []):
-            if key_data.get("kty") == "OKP" and key_data.get("crv") == "Ed25519":
-                kid = key_data.get("kid")
-                if kid:
-                    jwk = PyJWK(key_data)
-                    keys[kid] = jwk.key
+            kty = key_data.get("kty")
+            kid = key_data.get("kid")
+            if not kid:
+                continue
+            # Accept EC (P-256) keys — used by production IDPs
+            if kty == "EC" and key_data.get("crv") == "P-256":
+                jwk = PyJWK(key_data)
+                keys[kid] = jwk.key
+            # Accept OKP (Ed25519) keys — for backwards compatibility
+            elif kty == "OKP" and key_data.get("crv") == "Ed25519":
+                jwk = PyJWK(key_data)
+                keys[kid] = jwk.key
 
         self._jwks_cache[provider_domain] = (keys, now)
         return keys
@@ -147,9 +167,13 @@ class AIPVerifier:
                 f"Provider '{provider_domain}' is not trusted"
             )
 
-        # Fetch JWKS and find the key.
+        # Fetch JWKS and find the key. If the kid is missing, refetch
+        # once in case the IDP rotated keys since we last cached.
         keys = await self._fetch_jwks(provider_domain)
         public_key = keys.get(kid)
+        if public_key is None:
+            keys = await self._fetch_jwks(provider_domain, force_refresh=True)
+            public_key = keys.get(kid)
         if public_key is None:
             raise AIPTokenInvalid(
                 f"Key '{kid}' not found in JWKS for '{provider_domain}'"
@@ -160,8 +184,9 @@ class AIPVerifier:
             claims = jwt.decode(
                 token,
                 public_key,
-                algorithms=["EdDSA"],
+                algorithms=["ES256", "EdDSA"],
                 audience=self._audience,
+                leeway=self._clock_skew_seconds,
                 options={"require": ["exp", "iss", "aud"]},
             )
         except jwt.ExpiredSignatureError as exc:
