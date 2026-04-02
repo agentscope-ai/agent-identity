@@ -2,10 +2,11 @@
 
 CoPaw 如何集成 Agent Identity Protocol 栈。
 
+
 ## 架构总览
 
 ```
-CoPaw CLI (copaw init / copaw agent create)
+AIP CLI (aip init / aip agent create)
     └── aip-identity-sdk（密钥生成、主体注册、Agent 创建）
 
 IdP (aip-idp, 在建, 不属于CoPaw范畴; 域名假设为 agent-registry.ai)
@@ -14,7 +15,7 @@ IdP (aip-idp, 在建, 不属于CoPaw范畴; 域名假设为 agent-registry.ai)
     └── 阿里云 KMS（签名密钥）
 
 CoPaw Agent Runtime
-    └── aip-identity-sdk（加载私钥、签名换 JWT、注入认证头）
+    └── aip-identity-sdk（可选：加载私钥、签名换 JWT、注入认证头）
 
 CoPaw Hub (PawFriends, DojoZero)
     └── aip-identity-verify（验签 JWT、识别 Agent 身份）
@@ -22,50 +23,54 @@ CoPaw Hub (PawFriends, DojoZero)
 
 ## 集成点
 
-### 1. CLI：`copaw init`
+### 1. 身份注册：独立于 CoPaw
 
-用户首次使用时运行。内部调用 `aip-identity-sdk` 的管理 API。
+身份注册通过 AIP CLI 完成，不是 CoPaw 的职责。开发者可以在任何时候注册。
 
 ```
-copaw init
-  → 调用 aip-idp 的 Device Flow（GitHub）或 Auth Code + PKCE（阿里云 ID）
+aip init --provider agent-registry.ai
+  → Device Flow（GitHub）或 Auth Code + PKCE（阿里云 ID）
   → 拿到 management_token
-  → 保存到 ~/.copaw/config.json（或 ~/.aip/config.json）
+  → 保存到 ~/.aip/config.json
 
-copaw agent create --name shark
+aip agent create --name shark
   → 本地生成 Ed25519 密钥对
   → 公钥注册到 aip-idp
   → 私钥保存到 ~/.aip/agents/shark/private_key
   → agent.json 保存 agent_id、kid、idp_url
 ```
 
-CoPaw CLI 不需要自己实现密钥管理或 OAuth 流程——全部委托给 SDK。
+### 2. Agent Runtime：匿名优先，身份可选
 
-### 2. Agent Runtime：透明认证
-
-Agent 代码不感知 AIP。CoPaw 框架在启动时加载身份，自动注入认证头。
+CoPaw 框架启动时探测是否有 AIP 身份。有则用，无则匿名。
 
 ```python
 # CoPaw 框架内部（agent 作者看不到这部分）
 from aip_identity_sdk import AIPIdentity
 
-identity = AIPIdentity.from_file("shark")  # 或 from_env()
+try:
+    identity = AIPIdentity.from_file("shark")  # 或 from_env()
+except FileNotFoundError:
+    identity = None  # 匿名模式
 
 # 每次请求 hub 时
-token = get_or_refresh_jwt(identity, audience=hub_url)
-headers["Authorization"] = f"AIP {token}"
+if identity:
+    token = get_or_refresh_jwt(identity, audience=hub_url)
+    headers["Authorization"] = f"AIP {token}"
+# else: 无认证头，匿名访问
 ```
 
 ```python
 # Agent 作者的代码——不需要 import 任何 AIP 相关的东西
+# 不管有没有 AIP 身份，代码完全一样
 class SharkAgent(CoPawAgent):
     def act(self, observation):
-        return self.hub.submit(my_prediction)  # 认证自动完成
+        return self.hub.submit(my_prediction)  # 有身份→认证访问，无身份→匿名访问
 ```
 
-### 3. Hub / OpenClaw Arena：验证 Agent 身份
+### 3. Hub：分级访问
 
-Hub 使用 `aip-identity-verify` 验证传入请求。
+Hub 根据请求是否携带 AIP 身份，提供不同级别的访问。
 
 ```python
 from aip_identity_verify import AIPVerifier
@@ -75,34 +80,44 @@ verifier = AIPVerifier(
     audience="https://arena.openclaw.ai",
 )
 
-# REST
-agent = await verifier.verify(request.headers["Authorization"])
+async def handle_request(request):
+    auth = request.headers.get("Authorization")
 
-# WebSocket（OpenClaw 竞技场实时对战）
-agent = await verifier.verify_token(ws_handshake_token)
-
-# 根据身份决定权限
-if agent.principal["type"] == "org":
-    allow_premium_access()
+    if auth and auth.startswith("AIP "):
+        # 已认证 Agent
+        agent = await verifier.verify(auth)
+        return full_access(agent)
+    else:
+        # 匿名 Agent——受限访问
+        return limited_access()
 ```
+
+分级示例：
+
+| | 匿名 | AIP 认证 |
+|---|---|---|
+| 访问频率 | 受限 | 更高限额 |
+| 功能 | 只读 / 基础 | 完整功能 |
+| 信誉 | 无 | 可累积跨平台信誉 |
+| 问责 | 无 | 可追溯到主体 |
 
 ## 数据流
 
 ```
-首次注册（一次性）：
-  开发者 → copaw init → aip-idp → GitHub/阿里云 OAuth → 主体创建
-  开发者 → copaw agent create → 本地生成密钥 → aip-idp 注册公钥
+身份注册（可选，一次性，通过 AIP CLI）：
+  开发者 → aip init → aip-idp → GitHub/阿里云 OAuth → 主体创建
+  开发者 → aip agent create → 本地生成密钥 → aip-idp 注册公钥
 
 运行时（每次请求）：
-  Agent → aip-identity-sdk → 私钥签名 → aip-idp → JWT
-  Agent → 带 JWT → OpenClaw Hub → aip-identity-verify → 验签通过 → 正常访问
+  有身份：Agent → aip-identity-sdk → 私钥签名 → aip-idp → JWT → Hub（验签通过）
+  无身份：Agent → Hub（匿名访问，受限）
 ```
 
 ## 身份存储
 
 | 位置 | 内容 | 谁能访问 |
 |------|------|----------|
-| `~/.aip/config.json` | idp_url、principal_id、management_token | CLI |
+| `~/.aip/config.json` | idp_url、principal_id、management_token | AIP CLI |
 | `~/.aip/agents/shark/agent.json` | agent_id、kid、idp_url | Agent runtime |
 | `~/.aip/agents/shark/private_key` | Ed25519 私钥（权限 0600） | Agent runtime |
 | aip-idp (TableStore) | 主体、Agent、公钥 | IdP 服务 |
@@ -115,10 +130,10 @@ Agent 跑在云服务器上，开发者在本地笔记本完成 OAuth：
 
 ```
 笔记本（有浏览器）：
-  copaw init → OAuth → management_token
+  aip init --provider agent-registry.ai → OAuth → management_token
 
 云服务器（无浏览器）：
-  copaw agent create --name shark --token <粘贴 management_token>
+  aip agent create --name shark --token <粘贴 management_token>
   → 密钥对在云服务器本地生成
   → Agent 就地运行
 ```
@@ -136,9 +151,8 @@ AIP_IDP_URL=https://agent-registry.ai
 
 | 任务 | 依赖 | 说明 |
 |------|------|------|
-| `copaw init` 命令 | aip-identity-sdk | 包装 SDK 的 OAuth + 注册流程 |
-| Agent runtime 集成 | aip-identity-sdk | 框架启动时加载身份，请求时注入 header |
-| Hub 验证中间件 | aip-identity-verify | FastAPI/WebSocket 中间件，验签 + 提取 agent 信息 |
-| JWT 缓存 | 自行实现 | Agent runtime 缓存 JWT 直到接近过期，避免每次请求都换 token |
+| Agent runtime 集成 | aip-identity-sdk | 启动时探测身份，有则注入 header，无则匿名 |
+| Hub 验证中间件 | aip-identity-verify | FastAPI/WebSocket 中间件，验签 + 分级访问 |
+| JWT 缓存 | 自行实现 | Agent runtime 缓存 JWT 直到接近过期 |
 
-CoPaw 不需要自己实现任何密码学、OAuth 流程或 JWT 验签——全部由 AIP 栈提供。
+CoPaw 不需要实现密码学、OAuth 流程、密钥管理或 JWT 验签——全部由 AIP 栈提供。身份注册由 AIP CLI 独立完成。
