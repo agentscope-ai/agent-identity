@@ -8,15 +8,15 @@ CoPaw 如何集成 Agent Identity Protocol 栈。
 CoPaw CLI (copaw init / copaw agent create)
     └── aip-identity-sdk（密钥生成、主体注册、Agent 创建）
 
-CoPaw IdP (aip-idp 部署)
-    ├── GitHub OAuth + 阿里云 ID
+IdP (aip-idp, 在建, 不属于CoPaw范畴; 域名假设为 agent-registry.ai)
+    ├── GitHub OAuth / 阿里云 ID
     ├── 阿里云 TableStore（持久化）
     └── 阿里云 KMS（签名密钥）
 
 CoPaw Agent Runtime
     └── aip-identity-sdk（加载私钥、签名换 JWT、注入认证头）
 
-CoPaw Hub / PawFriends, DojoZero
+CoPaw Hub (PawFriends, DojoZero)
     └── aip-identity-verify（验签 JWT、识别 Agent 身份）
 ```
 
@@ -71,7 +71,7 @@ Hub 使用 `aip-identity-verify` 验证传入请求。
 from aip_identity_verify import AIPVerifier
 
 verifier = AIPVerifier(
-    trusted_providers=["copaw.ai"],
+    trusted_providers=["agent-registry.ai"],
     audience="https://arena.openclaw.ai",
 )
 
@@ -126,13 +126,13 @@ Agent 跑在云服务器上，开发者在本地笔记本完成 OAuth：
 或通过环境变量（CI/CD）：
 
 ```bash
-AIP_AGENT_ID=aip:copaw.ai:agent_xxx
+AIP_AGENT_ID=aip:agent-registry.ai:agent_xxx
 AIP_AGENT_KID=abc123
 AIP_PRIVATE_KEY=<hex>
-AIP_IDP_URL=https://identity.copaw.ai
+AIP_IDP_URL=https://agent-registry.ai
 ```
 
-## CoPaw 需要做的事
+## CoPaw stack 需要做的事
 
 | 任务 | 依赖 | 说明 |
 |------|------|------|
