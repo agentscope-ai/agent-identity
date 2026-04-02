@@ -131,6 +131,9 @@ class AIPVerifier:
     async def verify(self, authorization_header: str) -> AIPAgent:
         """Verify an ``Authorization: AIP <token>`` header and return an `AIPAgent`.
 
+        Convenience wrapper for HTTP handlers. For non-HTTP transports
+        (WebSocket, gRPC, MCP), use :meth:`verify_token` directly.
+
         Raises:
             AIPTokenInvalid: header is malformed or audience mismatch.
             AIPProviderUntrusted: issuer is not in trusted_providers.
@@ -140,8 +143,20 @@ class AIPVerifier:
         if not authorization_header or not authorization_header.startswith("AIP "):
             raise AIPTokenInvalid("Authorization header must start with 'AIP '")
 
-        token = authorization_header[4:]
+        return await self.verify_token(authorization_header[4:])
 
+    async def verify_token(self, token: str) -> AIPAgent:
+        """Verify a raw AIP JWT string and return an `AIPAgent`.
+
+        Transport-agnostic — use this for WebSocket, gRPC, MCP, or any
+        non-HTTP transport where the token isn't in an Authorization header.
+
+        Raises:
+            AIPTokenInvalid: token is malformed or audience mismatch.
+            AIPProviderUntrusted: issuer is not in trusted_providers.
+            AIPTokenExpired: token has expired.
+            AIPSignatureInvalid: signature verification failed.
+        """
         # Decode header (unverified) to get kid.
         try:
             unverified_header = jwt.get_unverified_header(token)

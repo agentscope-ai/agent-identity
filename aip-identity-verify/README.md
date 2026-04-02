@@ -18,13 +18,18 @@ verifier = AIPVerifier(
     audience="https://my-hub.example.com",
 )
 
-# In your request handler:
+# HTTP (REST)
 agent = await verifier.verify(request.headers["Authorization"])
+
+# WebSocket / gRPC / MCP — use verify_token() with the raw JWT
+agent = await verifier.verify_token(raw_jwt_string)
+
 print(f"Agent: {agent.agent_id}, Principal: {agent.principal}")
 ```
 
 ## Features
 
+- **Transport-agnostic** — `verify()` for HTTP headers, `verify_token()` for raw JWTs (WebSocket, gRPC, MCP)
 - **Multi-algorithm support** — Verifies JWTs signed with ES256 (ECDSA P-256) or EdDSA (Ed25519)
 - **Key rotation resilience** — Automatically refetches JWKS when an unknown `kid` is encountered
 - **Clock skew tolerance** — Configurable leeway (default 30s) for JWT expiry checks
