@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import zipfile
 from pathlib import Path
+from typing import BinaryIO
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
@@ -90,6 +92,31 @@ class AIPIdentity:
             idp_url=idp_url,
         )
 
+    @classmethod
+    def from_zip(cls, file: str | Path | BinaryIO) -> AIPIdentity:
+        """Load identity from a zip archive containing ``agent.json`` and ``private_key``.
+
+        *file* can be a file path or a file-like object (e.g., ``BytesIO``).
+        The zip is read in memory — no files are extracted to disk.
+        """
+        if isinstance(file, (str, Path)):
+            file = open(file, "rb")  # noqa: SIM115
+
+        with zipfile.ZipFile(file, "r") as zf:
+            names = zf.namelist()
+            config_entry = _find_in_zip(names, "agent.json")
+            key_entry = _find_in_zip(names, "private_key")
+
+            config = json.loads(zf.read(config_entry))
+            private_key_bytes = zf.read(key_entry)
+
+        return cls(
+            agent_id=config["agent_id"],
+            kid=config["kid"],
+            private_key_bytes=private_key_bytes,
+            idp_url=config["idp_url"],
+        )
+
     # -- properties -----------------------------------------------------------
 
     @property
@@ -119,6 +146,18 @@ class AIPIdentity:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _find_in_zip(names: list[str], filename: str) -> str:
+    """Find *filename* in a zip, handling both flat and single-directory layouts."""
+    if filename in names:
+        return filename
+    matches = [n for n in names if n.endswith(f"/{filename}")]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise FileNotFoundError(f"{filename} not found in zip archive")
+    raise FileNotFoundError(f"Multiple {filename} entries found in zip archive")
 
 
 def _load_private_key(data: bytes) -> Ed25519PrivateKey:

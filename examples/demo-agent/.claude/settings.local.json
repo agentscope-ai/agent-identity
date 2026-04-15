@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-sdk && rm -rf dist/ && python -m build 2>&1)",
+      "Bash(twine upload:*)"
+    ]
+  }
+}
