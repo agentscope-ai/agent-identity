@@ -169,7 +169,7 @@ dojozero-store
 *.pem
 
 # Claude configs
-/.claude/
+.claude/
 
 # Package lock files
 package-lock.json
