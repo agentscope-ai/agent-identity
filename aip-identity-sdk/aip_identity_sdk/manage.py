@@ -106,7 +106,6 @@ def save_agent(
     name: str,
     agent_id: str,
     kid: str,
-    idp_url: str,
     private_key_bytes: bytes,
     principal_id: str = "",
     principal_external_id: str = "",
@@ -124,12 +123,11 @@ def save_agent(
     key_path.write_bytes(private_key_bytes)
     os.chmod(key_path, 0o600)
 
-    # Metadata
+    # Metadata — idp_url is derived from agent_id domain at runtime
     meta = {
         "agent_id": agent_id,
         "kid": kid,
         "name": name,
-        "idp_url": idp_url,
         "principal_id": principal_id,
         "principal_external_id": principal_external_id,
         "principal_name": principal_name,
@@ -220,7 +218,6 @@ def create_agent(
         name=name,
         agent_id=registered.agent_id,
         kid=kid,
-        idp_url=idp_url,
         private_key_bytes=private_key_bytes,
         principal_id=principal_id,
         principal_external_id=principal_external_id,

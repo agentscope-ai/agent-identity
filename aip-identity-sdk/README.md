@@ -14,7 +14,7 @@ pip install aip-identity-sdk
 from aip_identity_sdk import AIPIdentity, AIPClient
 
 # Load agent identity from disk
-identity = AIPIdentity.from_file("my-agent")
+identity = AIPIdentity.from_profile("my-agent")
 client = AIPClient(identity)
 
 # Make authenticated requests

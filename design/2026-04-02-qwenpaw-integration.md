@@ -37,7 +37,7 @@ aip agent create --name shark
   → 本地生成 Ed25519 密钥对
   → 公钥注册到 aip-idp
   → 私钥保存到 ~/.aip/agents/shark/private_key
-  → agent.json 保存 agent_id、kid、idp_url
+  → agent.json 保存 agent_id、kid
 ```
 
 ### 2. Agent Runtime：匿名优先，身份可选
@@ -49,7 +49,7 @@ QwenPaw 框架启动时探测是否有 AIP 身份。有则用，无则匿名。
 from aip_identity_sdk import AIPIdentity
 
 try:
-    identity = AIPIdentity.from_file("shark")  # 或 from_env()
+    identity = AIPIdentity.from_profile("shark")  # 或 from_env()
 except FileNotFoundError:
     identity = None  # 匿名模式
 
@@ -117,8 +117,8 @@ async def handle_request(request):
 
 | 位置 | 内容 | 谁能访问 |
 |------|------|----------|
-| `~/.aip/config.json` | idp_url、principal_id、management_token | AIP CLI |
-| `~/.aip/agents/shark/agent.json` | agent_id、kid、idp_url | Agent runtime |
+| `~/.aip/config.json` | principal_id、management_token | AIP CLI |
+| `~/.aip/agents/shark/agent.json` | agent_id、kid | Agent runtime |
 | `~/.aip/agents/shark/private_key` | Ed25519 私钥（权限 0600） | Agent runtime |
 | aip-idp (TableStore) | 主体、Agent、公钥 | IdP 服务 |
 
@@ -144,7 +144,24 @@ Agent 跑在云服务器上，开发者在本地笔记本完成 OAuth：
 AIP_AGENT_ID=aip:agent-registry.ai:agent_xxx
 AIP_AGENT_KID=abc123
 AIP_PRIVATE_KEY=<hex>
-AIP_IDP_URL=https://agent-registry.ai
+# AIP_IDP_URL 可选覆盖；默认从 agent_id 域名推导（https://{domain}）
+```
+
+## IdP 域名到 URL 的解析
+
+SDK 从 agent_id 中提取域名（如 `aip:agent-registry.ai:agent_x` → `agent-registry.ai`），然后解析为可达的 IdP URL。
+
+**解析规则（按优先级）：**
+
+1. **显式覆盖** — `AIP_IDP_URL` 环境变量或代码中 `identity.idp_url = ...`
+2. **中心注册表** — 由 CA 或中心 Hub 维护的域名→URL 映射（如 `agent-registry.live` 提供的查询服务）
+3. **DNS 默认** — `https://{domain}`，生产环境中 DNS + TLS 直接解析
+
+域名到 URL 的映射不应由每个 agent 各自维护。生产环境依赖 DNS；非标准场景（开发端口、代理等）由中心注册表或 Hub 的 `provider_urls` 配置统一管理。
+
+```
+生产环境：agent_id 域名 → DNS → https://{domain}
+开发环境：agent_id 域名 → 中心注册表或 Hub provider_urls → http://localhost:8000
 ```
 
 ## QwenPaw stack 需要做的事

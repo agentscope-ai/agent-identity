@@ -62,4 +62,5 @@ async def startup():
     app.state.idp_private_key = private_key
     app.state.idp_kid = kid
     app.state.idp_domain = settings.idp_domain
+    app.state.idp_base_url = settings.idp_base_url
     app.state.token_ttl_seconds = settings.token_ttl_seconds

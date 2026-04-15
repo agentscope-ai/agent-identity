@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from aip_identity_sdk.identity import AIPIdentity
 from aip_identity_sdk.manage import (
     get_agent_dir,
     create_agent,
@@ -97,8 +98,9 @@ def token(
         timestamp=timestamp,
     )
 
-    # Request token from IdP
-    url = f"{meta['idp_url']}/aip/token"
+    # Derive IdP URL from agent_id domain
+    idp_url = AIPIdentity._idp_url_from_agent_id(meta["agent_id"])
+    url = f"{idp_url}/aip/token"
     payload = {
         "agent_id": meta["agent_id"],
         "kid": meta["kid"],

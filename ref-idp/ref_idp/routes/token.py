@@ -87,7 +87,6 @@ async def exchange_token(body: TokenRequest, request: Request):
     # 5. Issue JWT
     idp_private_key = app.state.idp_private_key
     idp_kid = app.state.idp_kid
-    domain = app.state.idp_domain
     ttl = app.state.token_ttl_seconds
 
     principal_claim = (
@@ -108,7 +107,7 @@ async def exchange_token(body: TokenRequest, request: Request):
         capabilities=None,
         idp_private_key=idp_private_key,
         idp_kid=idp_kid,
-        issuer=f"https://{domain}",
+        issuer=f"https://{app.state.idp_domain}",
         ttl_seconds=ttl,
     )
 

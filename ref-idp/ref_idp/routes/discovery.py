@@ -12,8 +12,7 @@ router = APIRouter()
 async def aip_configuration(request: Request):
     """Return the AIP IdP configuration document."""
     app = request.app
-    domain = app.state.idp_domain
-    base = f"https://{domain}"
+    base = app.state.idp_base_url
     return {
         "issuer": base,
         "token_endpoint": f"{base}/aip/token",

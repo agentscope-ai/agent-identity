@@ -37,10 +37,10 @@ def _make_agent_dir(tmp: Path) -> tuple[Path, Ed25519PrivateKey]:
     return agent_dir, private_key
 
 
-def test_from_file_loads_identity():
+def test_from_profile_loads_identity():
     with tempfile.TemporaryDirectory() as tmp:
         agent_dir, _ = _make_agent_dir(Path(tmp))
-        identity = AIPIdentity.from_file(agent_dir)
+        identity = AIPIdentity.from_profile(agent_dir)
 
         assert identity.agent_id == "agent-001"
         assert identity.kid == "key-001"
@@ -50,7 +50,7 @@ def test_from_file_loads_identity():
 def test_sign_token_request_produces_hex():
     with tempfile.TemporaryDirectory() as tmp:
         agent_dir, private_key = _make_agent_dir(Path(tmp))
-        identity = AIPIdentity.from_file(agent_dir)
+        identity = AIPIdentity.from_profile(agent_dir)
 
         sig_hex = identity.sign_token_request("https://hub.example.com", 1700000000)
         sig_bytes = bytes.fromhex(sig_hex)

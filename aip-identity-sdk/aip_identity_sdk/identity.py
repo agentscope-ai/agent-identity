@@ -21,19 +21,33 @@ class AIPIdentity:
         agent_id: str,
         kid: str,
         private_key_bytes: bytes,
-        idp_url: str,
+        idp_url: str | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._kid = kid
-        self._idp_url = idp_url
+        self._idp_url = idp_url or AIPIdentity._idp_url_from_agent_id(agent_id)
 
         # Try loading as PEM first, then raw 32-byte seed, then DER.
         self._private_key = _load_private_key(private_key_bytes)
 
+    @staticmethod
+    def _idp_url_from_agent_id(agent_id: str) -> str:
+        """Derive IDP base URL from agent_id domain (e.g. 'aip:example.com:agent_x' -> 'https://example.com')."""
+        parts = agent_id.split(":")
+        if len(parts) >= 3:
+            domain = parts[1]
+            scheme = (
+                "http"
+                if domain == "localhost" or domain.startswith("localhost:")
+                else "https"
+            )
+            return f"{scheme}://{domain}"
+        raise ValueError(f"Cannot derive IDP URL from agent_id: {agent_id}")
+
     # -- class methods --------------------------------------------------------
 
     @classmethod
-    def from_file(cls, agent_dir: str | Path | None = None) -> AIPIdentity:
+    def from_profile(cls, agent_dir: str | Path | None = None) -> AIPIdentity:
         """Load identity from ``~/.aip/agents/{name}/``.
 
         *agent_dir* should be the directory that contains ``agent.json`` and
@@ -66,7 +80,7 @@ class AIPIdentity:
             agent_id=config["agent_id"],
             kid=config["kid"],
             private_key_bytes=private_key_bytes,
-            idp_url=config["idp_url"],
+            idp_url=config.get("idp_url"),
         )
 
     @classmethod
@@ -82,7 +96,7 @@ class AIPIdentity:
         agent_id = os.environ["AIP_AGENT_ID"]
         kid = os.environ["AIP_AGENT_KID"]
         private_key_hex = os.environ["AIP_PRIVATE_KEY"]
-        idp_url = os.environ["AIP_IDP_URL"]
+        idp_url = os.environ.get("AIP_IDP_URL")
 
         private_key_bytes = bytes.fromhex(private_key_hex)
         return cls(
@@ -114,7 +128,7 @@ class AIPIdentity:
             agent_id=config["agent_id"],
             kid=config["kid"],
             private_key_bytes=private_key_bytes,
-            idp_url=config["idp_url"],
+            idp_url=config.get("idp_url"),
         )
 
     # -- properties -----------------------------------------------------------
@@ -130,6 +144,10 @@ class AIPIdentity:
     @property
     def idp_url(self) -> str:
         return self._idp_url
+
+    @idp_url.setter
+    def idp_url(self, value: str) -> None:
+        self._idp_url = value
 
     # -- signing --------------------------------------------------------------
 

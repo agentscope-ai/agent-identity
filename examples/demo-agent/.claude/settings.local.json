@@ -4,7 +4,18 @@
       "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-sdk && rm -rf dist/ && python -m build 2>&1)",
       "Bash(twine upload:*)",
       "Bash(cd /Users/yilei.z/dev/agent-identity && sed -i '' 's/COPAW/QWENPAW/g; s/CoPaw/QwenPaw/g; s/copaw/qwenpaw/g' \\\\\n  README.md \\\\\n  aip-identity-cli/README.md \\\\\n  aip-identity-sdk/aip_identity_sdk/manage.py \\\\\n  aip-identity-verify/README.md \\\\\n  design/2026-03-25-agent-identity-protocol.en.md \\\\\n  design/2026-03-25-agent-identity-protocol.zh.md \\\\\n  design/2026-03-31-idp-implementation-guide.zh.md \\\\\n  design/2026-04-02-copaw-integration.md \\\\\n  design/Commercialization.md \\\\\n  examples/README.md)",
-      "Bash(cd /Users/yilei.z/dev/agent-identity && mv design/2026-04-02-copaw-integration.md design/2026-04-02-qwenpaw-integration.md)"
+      "Bash(cd /Users/yilei.z/dev/agent-identity && mv design/2026-04-02-copaw-integration.md design/2026-04-02-qwenpaw-integration.md)",
+      "Bash(pip show:*)",
+      "Bash(python3 -c \"\nimport zipfile, json\nwith zipfile.ZipFile\\('/Users/yilei.z/Downloads/portal-test-agent.zip'\\) as z:\n    for name in z.namelist\\(\\):\n        print\\(name\\)\n        if name.endswith\\('agent.json'\\):\n            print\\(json.dumps\\(json.loads\\(z.read\\(name\\)\\), indent=2\\)\\)\n\")",
+      "Bash(pip index:*)",
+      "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-verify && rm -rf dist/ && python -m build 2>&1)",
+      "Bash(pip install:*)",
+      "Bash(curl -s http://localhost:8000/.well-known/aip-configuration 2>&1)",
+      "Bash(curl -sk https://localhost/.well-known/aip-configuration 2>&1)",
+      "Bash(python3 -c \"\nimport zipfile, json\nwith zipfile.ZipFile\\('/Users/yilei.z/Downloads/portal-agent.zip'\\) as z:\n    for name in z.namelist\\(\\):\n        if name.endswith\\('agent.json'\\):\n            print\\(json.dumps\\(json.loads\\(z.read\\(name\\)\\), indent=2\\)\\)\n\")",
+      "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-sdk && rm -rf dist/ && python -m build 2>&1 | tail -1)",
+      "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-cli && rm -rf dist/ && python -m build 2>&1 | tail -1)",
+      "Bash(cd /Users/yilei.z/dev/agent-identity/aip-identity-verify && rm -rf dist/ && python -m build 2>&1 | tail -1)"
     ]
   }
 }

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aip-identity-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI tool for managing agent identities (AIP)"
 requires-python = ">=3.10"
 license = "Apache-2.0"

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 class Settings:
     database_url: str = "sqlite+aiosqlite:///./ref_idp.db"
     idp_domain: str = "localhost"
+    idp_base_url: str = ""  # Full base URL; derived from idp_domain if empty
     idp_signing_key_path: str = "./idp_signing_key.pem"
     token_ttl_seconds: int = 4 * 60 * 60  # 4 hours
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
@@ -21,6 +22,7 @@ class Settings:
         env_map = {
             "AIP_DATABASE_URL": "database_url",
             "AIP_IDP_DOMAIN": "idp_domain",
+            "AIP_IDP_BASE_URL": "idp_base_url",
             "AIP_IDP_SIGNING_KEY_PATH": "idp_signing_key_path",
             "AIP_TOKEN_TTL_SECONDS": "token_ttl_seconds",
             "AIP_GITHUB_CLIENT_ID": "github_client_id",
@@ -32,6 +34,13 @@ class Settings:
                 if attr == "token_ttl_seconds":
                     value = int(value)
                 setattr(self, attr, value)
+
+        # Derive base_url from domain if not explicitly set.
+        if not self.idp_base_url:
+            if self.idp_domain == "localhost":
+                self.idp_base_url = "http://localhost:8000"
+            else:
+                self.idp_base_url = f"https://{self.idp_domain}"
 
 
 settings = Settings()
