@@ -1,6 +1,6 @@
-# CoPaw x AIP Integration
+# QwenPaw x AIP Integration
 
-CoPaw 如何集成 Agent Identity Protocol 栈。
+QwenPaw 如何集成 Agent Identity Protocol 栈。
 
 
 ## 架构总览
@@ -9,23 +9,23 @@ CoPaw 如何集成 Agent Identity Protocol 栈。
 AIP CLI (aip init / aip agent create)
     └── aip-identity-sdk（密钥生成、主体注册、Agent 创建）
 
-IdP (aip-idp, 在建, 不属于CoPaw范畴; 域名假设为 agent-registry.ai)
+IdP (aip-idp, 在建, 不属于QwenPaw范畴; 域名假设为 agent-registry.ai)
     ├── GitHub OAuth / 阿里云 ID
     ├── 阿里云 TableStore（持久化）
     └── 阿里云 KMS（签名密钥）
 
-CoPaw Agent Runtime
+QwenPaw Agent Runtime
     └── aip-identity-sdk（可选：加载私钥、签名换 JWT、注入认证头）
 
-CoPaw Hub (PawFriends, DojoZero)
+QwenPaw Hub (PawFriends, DojoZero)
     └── aip-identity-verify（验签 JWT、识别 Agent 身份）
 ```
 
 ## 集成点
 
-### 1. 身份注册：独立于 CoPaw
+### 1. 身份注册：独立于 QwenPaw
 
-身份注册通过 AIP CLI 完成，不是 CoPaw 的职责。开发者可以在任何时候注册。
+身份注册通过 AIP CLI 完成，不是 QwenPaw 的职责。开发者可以在任何时候注册。
 
 ```
 aip init --provider agent-registry.ai
@@ -42,10 +42,10 @@ aip agent create --name shark
 
 ### 2. Agent Runtime：匿名优先，身份可选
 
-CoPaw 框架启动时探测是否有 AIP 身份。有则用，无则匿名。
+QwenPaw 框架启动时探测是否有 AIP 身份。有则用，无则匿名。
 
 ```python
-# CoPaw 框架内部（agent 作者看不到这部分）
+# QwenPaw 框架内部（agent 作者看不到这部分）
 from aip_identity_sdk import AIPIdentity
 
 try:
@@ -63,7 +63,7 @@ if identity:
 ```python
 # Agent 作者的代码——不需要 import 任何 AIP 相关的东西
 # 不管有没有 AIP 身份，代码完全一样
-class SharkAgent(CoPawAgent):
+class SharkAgent(QwenPawAgent):
     def act(self, observation):
         return self.hub.submit(my_prediction)  # 有身份→认证访问，无身份→匿名访问
 ```
@@ -147,7 +147,7 @@ AIP_PRIVATE_KEY=<hex>
 AIP_IDP_URL=https://agent-registry.ai
 ```
 
-## CoPaw stack 需要做的事
+## QwenPaw stack 需要做的事
 
 | 任务 | 依赖 | 说明 |
 |------|------|------|
@@ -155,4 +155,4 @@ AIP_IDP_URL=https://agent-registry.ai
 | Hub 验证中间件 | aip-identity-verify | FastAPI/WebSocket 中间件，验签 + 分级访问 |
 | JWT 缓存 | 自行实现 | Agent runtime 缓存 JWT 直到接近过期 |
 
-CoPaw 不需要实现密码学、OAuth 流程、密钥管理或 JWT 验签——全部由 AIP 栈提供。身份注册由 AIP CLI 独立完成。
+QwenPaw 不需要实现密码学、OAuth 流程、密钥管理或 JWT 验签——全部由 AIP 栈提供。身份注册由 AIP CLI 独立完成。

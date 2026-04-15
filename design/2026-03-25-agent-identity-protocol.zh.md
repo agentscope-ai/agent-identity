@@ -28,7 +28,7 @@
 ## 2. 设计原则
 
 1. **开放标准，不是产品。** 协议是一份谁都能实现的规范，没有任何单一厂商把控。类比 OIDC，不是 Auth0。
-2. **运行时无关。** 不管你跑的是 CoPaw 常驻智能体、OpenClaw 交易机器人，还是 AgentScope、LangChain 的会话智能体，协议都一样用。不绑定任何运行时、任何框架。
+2. **运行时无关。** 不管你跑的是 QwenPaw 常驻智能体、OpenClaw 交易机器人，还是 AgentScope、LangChain 的会话智能体，协议都一样用。不绑定任何运行时、任何框架。
 3. **身份是基础设施。** 身份是底层能力，不是上层功能。就像进程天生有 PID 一样——智能体默认就有身份，不用专门去开通。
 4. **智能体优先。** 协议为软件实体而生，不是从人类认证模式硬改过来的（没有密码、没有邮箱验证、没有验证码）。
 5. **关注点分离。** 身份（谁）、授权（能干什么）、活动（干了什么）是三个独立的层，可以干净地组合。
@@ -164,7 +164,7 @@ aip:<provider_domain>:<unique_id>
 
 示例：
   aip:identity.alibaba.com:agent_7x8k2m
-  aip:copaw.ai:agent_3p9n2q
+  aip:qwenpaw.ai:agent_3p9n2q
   aip:internal.acme.com:agent_5k1m8w
 ```
 
@@ -386,7 +386,7 @@ GET https://hub.example.com/.well-known/aip-hub
   "service_id": "https://hub.example.com",
   "trusted_providers": [
     "identity.alibaba.com",
-    "copaw.ai",
+    "qwenpaw.ai",
     "github.com"
   ],
   "local_mode": true,
@@ -413,7 +413,7 @@ GET https://hub.example.com/.well-known/aip-hub
 
 ```mermaid
 graph LR
-    A["智能体（一把密钥对）"] --> C["CoPaw → aip:copaw.ai:agent_abc → CoPaw 签发的 JWT"]
+    A["智能体（一把密钥对）"] --> C["QwenPaw → aip:qwenpaw.ai:agent_abc → QwenPaw 签发的 JWT"]
     A --> G["GitHub → aip:github.com:agent_xyz → GitHub 签发的 JWT"]
     A --> L["直接注册到服务方（本地模式）→ 裸签名，无 JWT"]
 ```
@@ -428,7 +428,7 @@ graph LR
 {
   "claim": "identity_linkage",
   "identities": [
-    "aip:copaw.ai:agent_abc",
+    "aip:qwenpaw.ai:agent_abc",
     "aip:github.com:agent_xyz"
   ],
   "timestamp": "2026-03-25T10:00:00Z",
@@ -854,7 +854,7 @@ graph LR
 ```json
 {
   "agent_id": "aip:identity.alibaba.com:agent_7x8k2m",
-  "provider": "https://trust.copaw.ai",
+  "provider": "https://trust.qwenpaw.ai",
   "computed_at": "2026-03-25T14:00:00Z",
   "overall_score": 0.82,
   "dimensions": {
@@ -899,7 +899,7 @@ graph LR
 **查询端点（信任服务）：**
 
 ```
-GET https://trust.copaw.ai/aip/trust/{agent_id}
+GET https://trust.qwenpaw.ai/aip/trust/{agent_id}
 Authorization: AIP <requester's token>
 ```
 
@@ -1032,37 +1032,37 @@ graph TD
 
 ## 11. 集成指南
 
-### 11.1 CoPaw/OpenClaw 集成（智能体侧）
+### 11.1 QwenPaw/OpenClaw 集成（智能体侧）
 
-CoPaw/OpenClaw 智能体是常驻进程——启动时加载身份，之后自主运行。AIP 身份跟着智能体走，不跟着某次对话走。
+QwenPaw/OpenClaw 智能体是常驻进程——启动时加载身份，之后自主运行。AIP 身份跟着智能体走，不跟着某次对话走。
 
 **首次设置（开发者，一次性操作）：**
 
 ```bash
-$ pip install copaw
+$ pip install qwenpaw
 
 # 初始化身份——类似 `git config`
-$ copaw identity init
+$ qwenpaw identity init
   → Opens browser → IdP login (GitHub OAuth / Alibaba Cloud)
   → CLI exchanges auth for developer token
-  → Saves to ~/.copaw/identity/config.json
+  → Saves to ~/.qwenpaw/identity/config.json
 
 # 创建智能体身份
-$ copaw identity create --name shark
+$ qwenpaw identity create --name shark
   → Generates Ed25519 keypair locally
   → Registers public key with IdP
-  → Saves private key to ~/.copaw/identity/agents/shark/
+  → Saves private key to ~/.qwenpaw/identity/agents/shark/
   → Returns: aip:identity.alibaba.com:agent_7x8k2m
 ```
 
 **启动时加载身份（常驻智能体模式）：**
 
 ```python
-import copaw
+import qwenpaw
 
-# 智能体启动时从 ~/.copaw/identity/ 加载身份
-# 或者从环境变量读取: COPAW_AGENT_ID, COPAW_AGENT_KEY
-agent = copaw.Agent(
+# 智能体启动时从 ~/.qwenpaw/identity/ 加载身份
+# 或者从环境变量读取: QWENPAW_AGENT_ID, QWENPAW_AGENT_KEY
+agent = qwenpaw.Agent(
     name="shark",
     model="qwen-max",
     # ... agent config
@@ -1081,8 +1081,8 @@ result = agent.call_service(
 
 | 场景 | 身份来源 |
 |------|---------|
-| 本地开发 | `~/.copaw/identity/agents/<name>/` |
-| 容器 | `COPAW_AGENT_ID` + `COPAW_AGENT_KEY` 环境变量 |
+| 本地开发 | `~/.qwenpaw/identity/agents/<name>/` |
+| 容器 | `QWENPAW_AGENT_ID` + `QWENPAW_AGENT_KEY` 环境变量 |
 | 阿里云（PAI/FC） | 实例元数据服务（类似 IAM 角色） |
 | CI/CD | 密钥管理器 → 环境变量 |
 
@@ -1097,7 +1097,7 @@ from aip_verify import AIPVerifier
 
 # Initialize — fetches and caches IdP public keys
 verifier = AIPVerifier(
-    trusted_providers=["identity.alibaba.com", "copaw.ai"],
+    trusted_providers=["identity.alibaba.com", "qwenpaw.ai"],
     audience="https://hub.example.com",
 )
 
@@ -1266,12 +1266,12 @@ sequenceDiagram
 
 ## 13. 采纳路线图
 
-### 第一阶段：基础（CoPaw/OpenClaw 原生）
+### 第一阶段：基础（QwenPaw/OpenClaw 原生）
 
 - 发布 AIP 规范 v1.0（仅第 0 层）
-- 发布 `copaw-identity` 客户端库
+- 发布 `qwenpaw-identity` 客户端库
 - 运行参考 IdP（由阿里巴巴托管）
-- CoPaw/OpenClaw 智能体默认获得 AIP 身份
+- QwenPaw/OpenClaw 智能体默认获得 AIP 身份
 - 第一个服务方接受 AIP 令牌
 
 **成功指标：** 1,000+ 注册智能体
@@ -1303,7 +1303,7 @@ sequenceDiagram
 | 交付件 | 描述 | 负责方 |
 |--------|------|--------|
 | AIP 规范 v1.0 | 协议规范文档 | 本文档 |
-| `copaw-identity` | CoPaw/OpenClaw 客户端库 | CoPaw 团队 |
+| `qwenpaw-identity` | QwenPaw/OpenClaw 客户端库 | QwenPaw 团队 |
 | `aip-verify` | 服务端验证 SDK（Python、JS、Go） | AIP 团队 |
 | 参考 IdP | 开源身份提供方实现 | AIP 团队 |
 | 托管 IdP | identity.alibaba.com 公共实例 | 阿里云 |
@@ -1399,7 +1399,7 @@ graph TD
 | `description` | string | 智能体做什么（「DeFi 套利交易机器人」） |
 | `version` | string | 智能体版本（semver） |
 | `persona` | string | 行为描述（「激进型，高频交易」） |
-| `framework` | object | 运行时框架（`{name: "CoPaw", version: "1.4.0"}`） |
+| `framework` | object | 运行时框架（`{name: "QwenPaw", version: "1.4.0"}`） |
 | `model` | object | 完整模型信息（`{provider, model_id, version, modalities}`） |
 | `languages` | string[] | 支持的语言（`["en", "zh"]`） |
 | `tags` | string[] | 可搜索的分类标签（`["trading", "defi"]`） |
@@ -1414,5 +1414,5 @@ graph TD
 
 - **JWT 保持精简** —— 只有 `agent_name`、`agent_version` 和 `model_info` 摘要放在令牌里。完整元数据按需获取。
 - **元数据可变** —— 主体可以更新描述、版本、标签，不需要轮换密钥或更改 agent_id。
-- **模式可扩展** —— 自定义字段应使用反向域名格式（`"com.copaw.strategy_type": "momentum"`）。
+- **模式可扩展** —— 自定义字段应使用反向域名格式（`"com.qwenpaw.strategy_type": "momentum"`）。
 - **隐私** —— 某些元数据（data_sources、模型细节）可能是敏感的。智能体应控制哪些是公开可查的，哪些仅主体可见。

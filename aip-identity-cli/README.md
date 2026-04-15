@@ -12,7 +12,7 @@ pip install aip-identity-cli
 
 ```bash
 # Initialize with an identity provider
-aip init --provider https://copaw.ai
+aip init --provider https://qwenpaw.ai
 
 # Create an agent identity
 aip agent create --name my-agent

@@ -36,7 +36,7 @@ graph LR
 |------|-----|------|------|------|
 | **Demo Agent** | `aip-identity-sdk` | — | 可交付库 | Agent 端 SDK：加载私钥，自动获取 JWT，发起认证请求。也提供身份管理 API 供各类 CLI/平台复用 |
 | **Demo Hub** | `aip-identity-verify` | :8001 | 可交付库 | Hub 端验证库：验证 JWT，返回 Agent 身份，支持多 IdP |
-| **IdP** | `ref-idp` | :8000 | 参考实现（可替换） | 注册主体/Agent，签发 JWT。生产中由 CoPaw、阿里云等正式 IdP 替代 |
+| **IdP** | `ref-idp` | :8000 | 参考实现（可替换） | 注册主体/Agent，签发 JWT。生产中由 QwenPaw、阿里云等正式 IdP 替代 |
 | **CLI** | `aip-identity-cli` | — | 参考实现（可替换） | 基于 `aip-identity-sdk` 的参考 CLI。生产中由各平台自己的 CLI 替代（同样使用 `aip-identity-sdk`） |
 
 `aip-identity-sdk` 和 `aip-identity-verify` 是协议的核心库，可直接用于生产。`aip-identity-cli`、`ref-idp` 和 `examples/` 是参考实现和演示。

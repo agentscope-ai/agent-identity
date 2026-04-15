@@ -13,7 +13,7 @@ AIP 是一个开放协议，为 AI Agent 提供跨平台的身份认证、活动
 | **身份提供商 (IdP)** | 验证主体身份、签发 Agent JWT | Google（作为 OIDC 提供方） |
 | **平台 (Hub)** | Agent 访问的服务，验证 JWT | Spotify、Notion 等依赖方 |
 
-每个 Agent 有全局唯一 ID：`aip:<提供商域名>:<唯一标识>`（例：`aip:copaw.ai:agent_7x8k2m`）
+每个 Agent 有全局唯一 ID：`aip:<提供商域名>:<唯一标识>`（例：`aip:qwenpaw.ai:agent_7x8k2m`）
 
 ## 核心流程
 

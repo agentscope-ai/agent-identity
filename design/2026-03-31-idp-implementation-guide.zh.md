@@ -28,7 +28,7 @@
 graph TB
     subgraph "管理面（Control Plane）"
         PORTAL["管理门户<br/>（Web Portal）"]
-        CLI["平台 CLI<br/>（如 CoPaw CLI）"]
+        CLI["平台 CLI<br/>（如 QwenPaw CLI）"]
     end
 
     subgraph "IdP 服务"
@@ -577,7 +577,7 @@ IdP 存储智能体的公钥，用于验证令牌请求中的签名。
 
 ## 6. 管理门户集成
 
-对于提供 Web 管理门户的 IdP（如 CoPaw 平台），门户通过与 CLI 相同的 API 操作。
+对于提供 Web 管理门户的 IdP（如 QwenPaw 平台），门户通过与 CLI 相同的 API 操作。
 
 ### 6.1 典型门户功能
 
@@ -785,7 +785,7 @@ POST /aip/agents/{agent_id}/keys/batch
     "kid": "b2c3d4e5f6g7h8i9"
   },
   "ip": "203.0.113.42",
-  "user_agent": "CoPaw-CLI/1.0"
+  "user_agent": "QwenPaw-CLI/1.0"
 }
 ```
 

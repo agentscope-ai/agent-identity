@@ -8,14 +8,14 @@
 
 ## 1. Problem
 
-Autonomous agent ecosystems — CoPaw, OpenClaw, and their hubs — are producing agents that run persistently, compete across hubs, trade resources, and interact with each other without human intervention. These agents are more like server processes or bots than conversation assistants: they wake on schedule, maintain local state and config, and act autonomously across multiple services. Yet they have no persistent identity. An agent running on CoPaw cannot prove it is the same agent when it connects to an OpenClaw hub. Each hub rolls its own authentication. Reputation cannot travel.
+Autonomous agent ecosystems — QwenPaw, OpenClaw, and their hubs — are producing agents that run persistently, compete across hubs, trade resources, and interact with each other without human intervention. These agents are more like server processes or bots than conversation assistants: they wake on schedule, maintain local state and config, and act autonomously across multiple services. Yet they have no persistent identity. An agent running on QwenPaw cannot prove it is the same agent when it connects to an OpenClaw hub. Each hub rolls its own authentication. Reputation cannot travel.
 
 The problem extends beyond autonomous ecosystems. Generic agent frameworks (AgentScope, AutoGen, LangChain, CrewAI) also build agents with no identity — but their agents are typically ephemeral, invoked per-conversation. For persistent autonomous agents, the lack of cross-hub identity is not just inconvenient, it is structurally broken.
 
 This creates real problems:
 
 - **No accountability** — when an agent causes harm (financial loss, misinformation, unauthorized actions), there is no reliable way to trace the action back to a responsible party.
-- **No portability** — an agent's track record on one hub is invisible to every other hub. Reputation cannot travel across CoPaw, OpenClaw, or any other ecosystem.
+- **No portability** — an agent's track record on one hub is invisible to every other hub. Reputation cannot travel across QwenPaw, OpenClaw, or any other ecosystem.
 - **No auditability** — regulators (EU AI Act, US executive orders on AI safety) increasingly require traceability for AI systems. Today there is no standard mechanism to provide it.
 - **No trust** — without identity, agents cannot establish trust with hubs or with each other. Every interaction starts from zero — even for agents that have been running reliably for months.
 
@@ -26,7 +26,7 @@ This is the HTTP-without-DNS era for agents. Everyone can build agents, but ther
 ## 2. Design Principles
 
 1. **Open standard, not a product.** The protocol is a spec that anyone can implement. No single vendor controls it. Think OIDC, not Auth0.
-2. **Runtime-agnostic.** Works with CoPaw, OpenClaw, and any other agent runtime or framework (AgentScope, LangChain, CrewAI, etc.). The protocol does not assume any specific runtime, deployment model, or agent lifecycle.
+2. **Runtime-agnostic.** Works with QwenPaw, OpenClaw, and any other agent runtime or framework (AgentScope, LangChain, CrewAI, etc.). The protocol does not assume any specific runtime, deployment model, or agent lifecycle.
 3. **Identity as substrate.** Identity is a foundational layer, not an application feature. Like a process having a PID — agents have identities by default, not by opt-in.
 4. **Agents are first-class.** The protocol is designed for software entities, not retrofitted from human auth patterns (no passwords, no email verification, no CAPTCHA).
 5. **Separation of concerns.** Identity (who), authorization (what can it do), and activity (what did it do) are separate layers that compose cleanly.
@@ -160,7 +160,7 @@ aip:<provider_domain>:<unique_id>
 
 Examples:
   aip:identity.alibaba.com:agent_7x8k2m
-  aip:copaw.ai:agent_3p9n2q
+  aip:qwenpaw.ai:agent_3p9n2q
   aip:internal.acme.com:agent_5k1m8w
 ```
 
@@ -382,7 +382,7 @@ GET https://hub.example.com/.well-known/aip-hub
   "service_id": "https://hub.example.com",
   "trusted_providers": [
     "identity.alibaba.com",
-    "copaw.ai",
+    "qwenpaw.ai",
     "github.com"
   ],
   "local_mode": true,
@@ -409,7 +409,7 @@ Anyone can still run an IdP without joining the Trust Program. The protocol rema
 
 ```mermaid
 graph LR
-    Agent["Agent<br/>(one keypair)"] --> CoPaw["CoPaw<br/>aip:copaw.ai:agent_abc<br/>JWT signed by CoPaw"]
+    Agent["Agent<br/>(one keypair)"] --> QwenPaw["QwenPaw<br/>aip:qwenpaw.ai:agent_abc<br/>JWT signed by QwenPaw"]
     Agent --> GitHub["GitHub<br/>aip:github.com:agent_xyz<br/>JWT signed by GitHub"]
     Agent --> Local["Hub directly (local mode)<br/>raw signature, no JWT"]
 ```
@@ -424,7 +424,7 @@ An agent can prove that two identities across different IdPs belong to the same 
 {
   "claim": "identity_linkage",
   "identities": [
-    "aip:copaw.ai:agent_abc",
+    "aip:qwenpaw.ai:agent_abc",
     "aip:github.com:agent_xyz"
   ],
   "timestamp": "2026-03-25T10:00:00Z",
@@ -872,7 +872,7 @@ A trust score is a structured assessment, not a single number. Different dimensi
 ```json
 {
   "agent_id": "aip:identity.alibaba.com:agent_7x8k2m",
-  "provider": "https://trust.copaw.ai",
+  "provider": "https://trust.qwenpaw.ai",
   "computed_at": "2026-03-25T14:00:00Z",
   "overall_score": 0.82,
   "dimensions": {
@@ -917,7 +917,7 @@ Scores are normalized to [0, 1]. The `overall_score` is a weighted composite —
 **Query endpoint (trust service):**
 
 ```
-GET https://trust.copaw.ai/aip/trust/{agent_id}
+GET https://trust.qwenpaw.ai/aip/trust/{agent_id}
 Authorization: AIP <requester's token>
 ```
 
@@ -1060,37 +1060,37 @@ Eight reference scenarios and how they exercise each protocol layer. Split into 
 
 ## 11. Integration Guide
 
-### 11.1 CoPaw/OpenClaw Integration (Agent-Side)
+### 11.1 QwenPaw/OpenClaw Integration (Agent-Side)
 
-CoPaw ships the AIP client library. Identity is built into the agent lifecycle — a CoPaw or OpenClaw agent loads its AIP credentials on boot, manages token refresh transparently, and injects authentication into all outbound requests without developer intervention.
+QwenPaw ships the AIP client library. Identity is built into the agent lifecycle — a QwenPaw or OpenClaw agent loads its AIP credentials on boot, manages token refresh transparently, and injects authentication into all outbound requests without developer intervention.
 
 **First-time setup (developer, one-time):**
 
 ```bash
-$ pip install copaw
+$ pip install qwenpaw
 
 # Initialize identity — like `git config`
-$ copaw identity init
+$ qwenpaw identity init
   → Opens browser → IdP login (GitHub OAuth / Alibaba Cloud)
   → CLI exchanges auth for developer token
-  → Saves to ~/.copaw/identity/config.json
+  → Saves to ~/.qwenpaw/identity/config.json
 
 # Create an agent identity
-$ copaw identity create --name shark
+$ qwenpaw identity create --name shark
   → Generates Ed25519 keypair locally
   → Registers public key with IdP
-  → Saves private key to ~/.copaw/identity/agents/shark/
+  → Saves private key to ~/.qwenpaw/identity/agents/shark/
   → Returns: aip:identity.alibaba.com:agent_7x8k2m
 ```
 
 **Runtime (persistent agent, automatic identity lifecycle):**
 
 ```python
-import copaw
+import qwenpaw
 
-# On boot, identity is loaded from ~/.copaw/identity/
-# or from environment: COPAW_AGENT_ID, COPAW_AGENT_KEY
-agent = copaw.Agent(
+# On boot, identity is loaded from ~/.qwenpaw/identity/
+# or from environment: QWENPAW_AGENT_ID, QWENPAW_AGENT_KEY
+agent = qwenpaw.Agent(
     name="shark",
     model="qwen-max",
     # ... agent config
@@ -1119,10 +1119,10 @@ result = agent.call_service(
 
 | Context | Identity source |
 |---------|----------------|
-| Local dev | `~/.copaw/identity/agents/<name>/` |
-| Container | `COPAW_AGENT_ID` + `COPAW_AGENT_KEY` env vars |
+| Local dev | `~/.qwenpaw/identity/agents/<name>/` |
+| Container | `QWENPAW_AGENT_ID` + `QWENPAW_AGENT_KEY` env vars |
 | Alibaba Cloud (PAI/FC) | Instance metadata service (like IAM role) |
-| Persistent daemon | Loads from `~/.copaw/identity/` on boot, manages token lifecycle |
+| Persistent daemon | Loads from `~/.qwenpaw/identity/` on boot, manages token lifecycle |
 | CI/CD | Secrets manager → env vars |
 
 ### 11.2 Service Integration (Hub-Side)
@@ -1136,7 +1136,7 @@ from aip_verify import AIPVerifier
 
 # Initialize — fetches and caches IdP public keys
 verifier = AIPVerifier(
-    trusted_providers=["identity.alibaba.com", "copaw.ai"],
+    trusted_providers=["identity.alibaba.com", "qwenpaw.ai"],
     audience="https://hub.example.com",
 )
 
@@ -1305,12 +1305,12 @@ With AIP:
 
 ## 13. Adoption Roadmap
 
-### Phase 1: Foundation (CoPaw/OpenClaw-native)
+### Phase 1: Foundation (QwenPaw/OpenClaw-native)
 
 - Publish AIP spec v1.0 (Layer 0 only)
-- Ship `copaw-identity` client library
+- Ship `qwenpaw-identity` client library
 - Run reference IdP (hosted by Alibaba)
-- CoPaw/OpenClaw agents get AIP identity by default
+- QwenPaw/OpenClaw agents get AIP identity by default
 - First partner hub accepts AIP tokens
 
 **Success metric:** 1,000+ registered agents
@@ -1342,7 +1342,7 @@ With AIP:
 | Deliverable | Description | Owner |
 |-------------|-------------|-------|
 | AIP Spec v1.0 | Protocol specification document | This document |
-| `copaw-identity` | Client library for CoPaw/OpenClaw | CoPaw team |
+| `qwenpaw-identity` | Client library for QwenPaw/OpenClaw | QwenPaw team |
 | `aip-verify` | Service-side verification SDK (Python, JS, Go) | AIP team |
 | Reference IdP | Open source identity provider implementation | AIP team |
 | Hosted IdP | Public instance at identity.alibaba.com | Alibaba Cloud |
@@ -1438,7 +1438,7 @@ Candidate metadata fields:
 | `description` | string | What this agent does ("DeFi arbitrage trading bot") |
 | `version` | string | Agent version (semver) |
 | `persona` | string | Behavioral description ("aggressive, high-frequency") |
-| `framework` | object | Runtime framework (`{name: "CoPaw", version: "1.4.0"}`) |
+| `framework` | object | Runtime framework (`{name: "QwenPaw", version: "1.4.0"}`) |
 | `model` | object | Full model info (`{provider, model_id, version, modalities}`) |
 | `languages` | string[] | Supported languages (`["en", "zh"]`) |
 | `tags` | string[] | Searchable categories (`["trading", "defi"]`) |
@@ -1453,5 +1453,5 @@ Design considerations:
 
 - **JWT stays lean** — only `agent_name`, `agent_version`, and `model_info` summary travel in the token. Full metadata is fetched on demand.
 - **Metadata is mutable** — the principal can update description, version, tags without rotating keys or changing the agent_id.
-- **Schema is extensible** — custom fields should use reverse-domain notation (`"com.copaw.strategy_type": "momentum"`).
+- **Schema is extensible** — custom fields should use reverse-domain notation (`"com.qwenpaw.strategy_type": "momentum"`).
 - **Privacy** — some metadata (data_sources, model details) may be sensitive. The agent should control what is publicly queryable vs principal-only.

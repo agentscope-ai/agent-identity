@@ -1,7 +1,7 @@
 """Identity management — setup-time operations for principals and agents.
 
 This module provides the core logic that both `aip-cli` and platform CLIs
-(e.g., CoPaw) use to register principals, create agents, and manage keys.
+(e.g., QwenPaw) use to register principals, create agents, and manage keys.
 
 Typical usage:
 

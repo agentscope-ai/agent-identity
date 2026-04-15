@@ -14,7 +14,7 @@ pip install aip-identity-verify
 from aip_identity_verify import AIPVerifier
 
 verifier = AIPVerifier(
-    trusted_providers=["copaw.ai"],
+    trusted_providers=["qwenpaw.ai"],
     audience="https://my-hub.example.com",
 )
 
@@ -40,7 +40,7 @@ print(f"Agent: {agent.agent_id}, Principal: {agent.principal}")
 
 ```python
 verifier = AIPVerifier(
-    trusted_providers=["copaw.ai", "other-idp.example.com"],
+    trusted_providers=["qwenpaw.ai", "other-idp.example.com"],
     audience="https://my-hub.example.com",
     cache_ttl=3600,            # JWKS cache TTL in seconds (default: 1 hour)
     clock_skew_seconds=30,     # Clock skew tolerance (default: 30s)
