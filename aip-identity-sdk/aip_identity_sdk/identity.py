@@ -119,7 +119,11 @@ class AIPIdentity:
         with zipfile.ZipFile(file, "r") as zf:
             names = zf.namelist()
             config_entry = _find_in_zip(names, "agent.json")
-            key_entry = _find_in_zip(names, "private_key")
+            # Accept both private_key.pem (PEM) and private_key (raw/legacy)
+            try:
+                key_entry = _find_in_zip(names, "private_key.pem")
+            except FileNotFoundError:
+                key_entry = _find_in_zip(names, "private_key")
 
             config = json.loads(zf.read(config_entry))
             private_key_bytes = zf.read(key_entry)
