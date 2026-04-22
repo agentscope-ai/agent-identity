@@ -198,6 +198,7 @@ What an agent is allowed to do. Carried as claims within the token.
 - Capability declarations ("can trade", "can search", "can execute code")
 - Scope constraints ("max $1000 per transaction", "read-only")
 - Delegation chains ("acting on behalf of user X")
+- Authorization grants & approval workflows (human-in-the-loop confirmation)
 - Organizational claims ("employed by Acme Corp")
 - Compliance claims ("EU AI Act registered", "model audited")
 
@@ -1534,7 +1535,7 @@ With AIP:
 ### Phase 1: Foundation (QwenPaw/OpenClaw-native)
 
 - Publish AIP spec v1.0 (Layer 0 only)
-- Ship `qwenpaw-identity` client library
+- Ship `aip-identity-sdk` client library and `aip-identity-cli`
 - Run reference IdP (hosted by Alibaba)
 - QwenPaw/OpenClaw agents get AIP identity by default
 - First partner hub accepts AIP tokens
@@ -1568,8 +1569,9 @@ With AIP:
 | Deliverable | Description | Owner |
 |-------------|-------------|-------|
 | AIP Spec v1.0 | Protocol specification document | This document |
-| `qwenpaw-identity` | Client library for QwenPaw/OpenClaw | QwenPaw team |
-| `aip-verify` | Service-side verification SDK (Python, JS, Go) | AIP team |
+| `aip-identity-sdk` | Client library for agents (Python) | AIP team |
+| `aip-identity-cli` | CLI tool for managing agent identities | AIP team |
+| `aip-identity-verify` | Service-side verification SDK (Python) | AIP team |
 | Reference IdP | Open source identity provider implementation | AIP team |
 | Hosted IdP | Public instance at identity.alibaba.com | Alibaba Cloud |
 | Partner hub integration | First hub to accept AIP tokens | Partner team |

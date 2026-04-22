@@ -202,6 +202,7 @@ block-beta
 - 能力声明（「可交易」「可搜索」「可执行代码」）
 - 范围约束（「每笔交易不超过 $1000」「只读」）
 - 委托链（「代表用户 X 行事」）
+- 授权许可与审批工作流（人工参与确认）
 - 组织声明（「受雇于 Acme 公司」）
 - 合规声明（「已注册欧盟 AI 法案」「模型已审计」）
 
@@ -1495,7 +1496,7 @@ sequenceDiagram
 ### 第一阶段：基础（QwenPaw/OpenClaw 原生）
 
 - 发布 AIP 规范 v1.0（仅第 0 层）
-- 发布 `qwenpaw-identity` 客户端库
+- 发布 `aip-identity-sdk` 客户端库和 `aip-identity-cli`
 - 运行参考 IdP（由阿里巴巴托管）
 - QwenPaw/OpenClaw 智能体默认获得 AIP 身份
 - 第一个服务方接受 AIP 令牌
@@ -1529,8 +1530,9 @@ sequenceDiagram
 | 交付件 | 描述 | 负责方 |
 |--------|------|--------|
 | AIP 规范 v1.0 | 协议规范文档 | 本文档 |
-| `qwenpaw-identity` | QwenPaw/OpenClaw 客户端库 | QwenPaw 团队 |
-| `aip-verify` | 服务端验证 SDK（Python、JS、Go） | AIP 团队 |
+| `aip-identity-sdk` | 智能体客户端库（Python） | AIP 团队 |
+| `aip-identity-cli` | 智能体身份管理 CLI 工具 | AIP 团队 |
+| `aip-identity-verify` | 服务端验证 SDK（Python） | AIP 团队 |
 | 参考 IdP | 开源身份提供方实现 | AIP 团队 |
 | 托管 IdP | identity.alibaba.com 公共实例 | 阿里云 |
 | 服务方集成 | 第一个接受 AIP 令牌的服务方 | 合作伙伴 |
