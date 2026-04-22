@@ -577,7 +577,7 @@ sequenceDiagram
 }
 ```
 
-低于阈值的操作自主进行，高于阈值的操作需要委托人的带外确认。确认机制不由 AIP 定义——那是服务方的事（邮件、推送通知、应用内审批）。AIP 只在令牌中携带阈值，让服务方知道该执行它。
+低于阈值的操作自主进行，高于阈值的操作需要委托人的带外确认。AIP 在令牌中携带阈值，让服务方知道该执行它。第 7.6 节定义了确认流程的标准交互模式——授权许可请求流程。
 
 ### 7.5 各场景下的声明
 
@@ -608,6 +608,232 @@ sequenceDiagram
 - **范围更严格** —— 主体（或委托人）约束智能体用其权限能做的事
 - **确认阈值** —— 某些操作超过限额需要人工审批（如购物超过 500 要确认）
 - **合规更重** —— 处理别人的数据或资金会触发监管要求
+
+### 7.6 授权许可与审批工作流
+
+第 7.3 节和第 7.4 节定义了智能体_声明_自己能做什么。本节定义当智能体**请求访问特定资源或执行特定操作**且服务方要求显式授权（可能包含人工审批）时的交互模式。
+
+**设计原则：** AIP 定义交互模式和令牌结构。策略引擎（OPA、Cedar、Zanzibar 或自定义逻辑）是可插拔的。IdP 不是策略引擎——它携带身份和声明。服务方执行策略。
+
+#### 7.6.1 何时需要授权许可
+
+服务方在以下情况下可以（MAY）要求授权许可：
+
+- 请求的操作超出智能体 `scopes` 中的阈值（如 `requires_confirmation_above`）
+- 智能体首次访问受保护资源
+- 服务方策略要求特定操作必须获得主体的显式同意
+- 法规要求人工参与审批（human-in-the-loop）
+
+如果操作在智能体声明的范围和委托权限之内，服务方不应（SHOULD NOT）要求授权许可。授权许可是例外路径，不是默认路径。
+
+#### 7.6.2 授权许可请求流程
+
+审批工作流是**异步的**——服务方不能在等待人工审批期间阻塞智能体的连接。流程分四步：
+
+```mermaid
+sequenceDiagram
+    participant Agent as 智能体
+    participant Hub as 服务方（Hub）
+    participant Principal as 主体（人/组织）
+
+    Agent->>Hub: 请求操作（携带 AIP 令牌）
+    Hub->>Hub: 评估策略 → 需要审批
+    Hub-->>Agent: 202 Accepted + approval_request
+    Hub->>Principal: 通知（webhook / 邮件 / 推送）
+    Principal->>Hub: 批准或拒绝
+    Agent->>Hub: 轮询许可状态
+    Hub-->>Agent: 许可已批准 → 继续执行
+```
+
+**第 1 步：智能体请求操作。** 智能体携带 AIP 令牌发起普通的认证请求。
+
+**第 2 步：服务方判定需要审批。** 基于自身策略（范围、委托阈值、资源级规则），服务方决定该操作需要授权。
+
+**第 3 步：服务方返回 `202 Accepted` 和审批请求。**
+
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+
+{
+  "status": "approval_required",
+  "approval_id": "apr_8k2m9x4n",
+  "resource": "/api/trade/execute",
+  "action": "trade.execute",
+  "details": {
+    "amount": 2500.00,
+    "currency": "USD",
+    "pair": "BTC/USD"
+  },
+  "threshold_exceeded": "requires_confirmation_above: 500",
+  "poll_url": "/aip/grants/apr_8k2m9x4n",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+**第 4 步：服务方通知主体。** 服务方使用智能体 AIP 令牌中的 `notification_endpoint` 或服务方已注册的联系方式向主体发送通知。通知机制由服务方决定（webhook、邮件、推送通知、应用内消息）。AIP 不定义传输方式——只要求通知应（SHOULD）包含：
+
+- 智能体身份（`agent_id`、`agent_name`）
+- 请求的操作和资源
+- 需要审批的原因（超出阈值、首次访问等）
+- 批准/拒绝的交互界面（URL、按钮、API 端点）
+- 过期时间
+
+**第 5 步：主体批准或拒绝。** 主体直接与服务方交互（通过门户、API、邮件链接等）来批准或拒绝请求。
+
+**第 6 步：智能体轮询许可状态。** 智能体轮询第 3 步返回的 `poll_url`。
+
+```http
+GET /aip/grants/apr_8k2m9x4n
+Authorization: AIP <token>
+```
+
+等待中的响应：
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "pending",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+已批准的响应：
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "approved",
+  "grant": {
+    "grant_id": "gnt_3f7a2b1c",
+    "resource": "/api/trade/execute",
+    "action": "trade.execute",
+    "constraints": {
+      "max_amount": 2500.00,
+      "currency": "USD"
+    },
+    "approved_by": "principal:dev_alice_9k2m",
+    "approved_at": "2026-04-22T16:35:00Z",
+    "expires_at": "2026-04-22T20:35:00Z"
+  }
+}
+```
+
+已拒绝的响应：
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "denied",
+  "reason": "自动交易金额过高"
+}
+```
+
+**第 7 步：智能体携带许可重试。** 智能体在重试请求中包含 `grant_id`：
+
+```http
+POST /api/trade/execute
+Authorization: AIP <token>
+X-AIP-Grant: gnt_3f7a2b1c
+Content-Type: application/json
+
+{
+  "pair": "BTC/USD",
+  "amount": 2500.00,
+  "side": "buy"
+}
+```
+
+服务方验证许可有效、未过期、匹配操作，且是签发给该智能体的。
+
+#### 7.6.3 授权许可属性
+
+授权许可是**服务方本地的**——由服务方签发和执行，不由 IdP 管理。这保持了 IdP 作为纯身份层的定位。
+
+| 属性 | 说明 |
+|------|------|
+| `grant_id` | 服务方签发的唯一标识 |
+| `resource` | 许可适用的具体资源或端点 |
+| `action` | 被授权的操作 |
+| `constraints` | 操作相关的限制（金额、次数、时间窗口） |
+| `approved_by` | 批准的主体或代理人 |
+| `approved_at` | 批准时间 |
+| `expires_at` | 许可过期时间（必须有 TTL） |
+
+授权许可必须（MUST）：
+- **有时间限制** —— 每个许可都有过期时间。不允许永久许可。
+- **限定操作范围** —— `trade.execute` 的许可不能用于 `trade.withdraw`。
+- **绑定智能体** —— 签发给智能体 A 的许可不能被智能体 B 使用。
+
+授权许可应当（SHOULD）：
+- **单次使用或限次** —— 在适当情况下，许可授权一次操作或 N 次操作，而非 TTL 内无限次操作。
+- **可审计** —— 服务方应记录许可的创建、使用和过期。
+
+#### 7.6.4 主体通知端点
+
+为支持审批工作流，主体或智能体记录中可以（MAY）包含 `notification_endpoint`——一个服务方可以发送审批请求的 URL。
+
+`notification_endpoint` 注册在 IdP，可选地包含在 AIP 令牌中：
+
+```json
+{
+  "principal": {
+    "type": "human",
+    "id": "dev_alice_9k2m",
+    "name": "Alice",
+    "notification_endpoint": "https://hooks.example.com/alice/approvals"
+  }
+}
+```
+
+服务方发送的通知载荷：
+
+```json
+{
+  "type": "approval_request",
+  "approval_id": "apr_8k2m9x4n",
+  "hub": "https://hub.example.com",
+  "agent_id": "aip:example.com:agent_7x8k2m",
+  "agent_name": "shark",
+  "action": "trade.execute",
+  "resource": "/api/trade/execute",
+  "details": {
+    "amount": 2500.00,
+    "currency": "USD"
+  },
+  "reason": "金额超出确认阈值（500 USD）",
+  "approve_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/approve",
+  "deny_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/deny",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+`notification_endpoint` 是可选的。如果不存在，服务方回退到自身的通知机制（门户收件箱、注册联系人邮件等）。完全自主运行的智能体（无人工参与）不会有通知端点——服务方必须根据自身策略决定是自动拒绝还是允许。
+
+#### 7.6.5 与委托阈值的关系
+
+第 7.4 节在委托范围中定义了 `requires_confirmation_above`。本节定义该确认在实践中_如何发生_：
+
+1. IdP 在 JWT 委托声明中包含 `requires_confirmation_above: 500`。
+2. 服务方从令牌中读取该阈值。
+3. 当智能体请求超出阈值的操作时，服务方启动授权许可请求流程（7.6.2）。
+4. 主体通过服务方批准或拒绝。
+5. 服务方签发限定于该具体操作的许可。
+
+AIP 在令牌中定义阈值，在协议中定义许可交互模式。服务方实施策略执行和主体通知。IdP 在许可签发时不参与——它在令牌签发时已提供了身份和声明。
+
+#### 7.6.6 服务方授权许可端点
+
+实施审批工作流的服务方应当（SHOULD）暴露以下端点：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/aip/grants/{approval_id}` | 轮询许可状态（智能体） |
+| `POST` | `/aip/grants/{approval_id}/approve` | 批准请求（主体） |
+| `POST` | `/aip/grants/{approval_id}/deny` | 拒绝请求（主体） |
+| `GET` | `/aip/grants` | 列出待处理/有效的许可（主体） |
+
+这些是服务方端点，不是 IdP 端点。`/aip/grants` 前缀是约定——服务方可以（MAY）使用不同的路径。
 
 ---
 

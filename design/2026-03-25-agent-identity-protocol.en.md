@@ -573,7 +573,7 @@ The delegator is responsible for the delegatee's actions within the delegation s
 }
 ```
 
-Actions below the threshold proceed autonomously. Actions above it require out-of-band confirmation from the delegator. The confirmation mechanism is not defined by AIP — it is hub-specific (email, push notification, in-app approval). AIP only carries the threshold in the token so the hub knows to enforce it.
+Actions below the threshold proceed autonomously. Actions above it require out-of-band confirmation from the delegator. AIP carries the threshold in the token so the hub knows to enforce it. Section 7.6 defines the standard interaction pattern for how this confirmation happens in practice — the grant request flow.
 
 ### 7.5 Claims Across Scenarios
 
@@ -604,6 +604,232 @@ Key differences in delegated scenarios:
 - **Scopes are tighter** — the principal (or delegator) constrains what the agent can do with their authority
 - **Confirmation thresholds** — some actions require human approval above a limit (e.g., `requires_confirmation_above: 500` for purchases)
 - **Compliance is heavier** — handling someone else's data or money triggers regulatory requirements
+
+### 7.6 Authorization Grants & Approval Workflows
+
+Sections 7.3 and 7.4 define what an agent _declares_ it can do. This section defines what happens when an agent **requests access to a specific resource or action** and the hub requires explicit authorization — possibly including human approval.
+
+**Design principle:** AIP defines the interaction pattern and token shape. The policy engine (OPA, Cedar, Zanzibar, or custom logic) is pluggable. The IdP is not a policy engine — it carries identity and claims. The hub enforces policy.
+
+#### 7.6.1 When Grants Apply
+
+A hub MAY require an authorization grant when:
+
+- The requested action exceeds the agent's `scopes` thresholds (e.g., `requires_confirmation_above`)
+- The agent accesses a protected resource for the first time
+- The hub's policy requires explicit principal consent for certain operations
+- Regulatory requirements mandate human-in-the-loop approval
+
+A hub SHOULD NOT require grants for actions that fall within the agent's declared scopes and delegation authority. Grants are the exception, not the default path.
+
+#### 7.6.2 Grant Request Flow
+
+The approval workflow is **asynchronous** — the hub cannot block the agent's connection while waiting for human approval. The flow has four steps:
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Hub as Service (Hub)
+    participant Principal as Principal (Human/Org)
+
+    Agent->>Hub: Request action (with AIP token)
+    Hub->>Hub: Evaluate policy → approval required
+    Hub-->>Agent: 202 Accepted + approval_request
+    Hub->>Principal: Notify (webhook / email / push)
+    Principal->>Hub: Approve or Deny
+    Agent->>Hub: Poll grant status
+    Hub-->>Agent: Grant approved → proceed
+```
+
+**Step 1: Agent requests action.** The agent makes a normal authenticated request with its AIP token.
+
+**Step 2: Hub determines approval is needed.** Based on its own policy (scopes, delegation thresholds, resource-level rules), the hub decides the action requires authorization.
+
+**Step 3: Hub returns `202 Accepted` with an approval request.**
+
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+
+{
+  "status": "approval_required",
+  "approval_id": "apr_8k2m9x4n",
+  "resource": "/api/trade/execute",
+  "action": "trade.execute",
+  "details": {
+    "amount": 2500.00,
+    "currency": "USD",
+    "pair": "BTC/USD"
+  },
+  "threshold_exceeded": "requires_confirmation_above: 500",
+  "poll_url": "/aip/grants/apr_8k2m9x4n",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+**Step 4: Hub notifies the principal.** The hub sends a notification to the principal using the `notification_endpoint` from the agent's AIP token or a hub-registered contact. The notification mechanism is hub-specific (webhook, email, push notification, in-app message). AIP does not define the transport — only that the notification SHOULD include:
+
+- Agent identity (`agent_id`, `agent_name`)
+- Requested action and resource
+- Why approval is needed (threshold exceeded, first-time access, etc.)
+- An approve/deny interface (URL, button, API endpoint)
+- Expiration time
+
+**Step 5: Principal approves or denies.** The principal interacts with the hub directly (via portal, API, email link, etc.) to approve or deny the request.
+
+**Step 6: Agent polls for grant status.** The agent polls the `poll_url` returned in step 3.
+
+```http
+GET /aip/grants/apr_8k2m9x4n
+Authorization: AIP <token>
+```
+
+Response when pending:
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "pending",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+Response when approved:
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "approved",
+  "grant": {
+    "grant_id": "gnt_3f7a2b1c",
+    "resource": "/api/trade/execute",
+    "action": "trade.execute",
+    "constraints": {
+      "max_amount": 2500.00,
+      "currency": "USD"
+    },
+    "approved_by": "principal:dev_alice_9k2m",
+    "approved_at": "2026-04-22T16:35:00Z",
+    "expires_at": "2026-04-22T20:35:00Z"
+  }
+}
+```
+
+Response when denied:
+
+```json
+{
+  "approval_id": "apr_8k2m9x4n",
+  "status": "denied",
+  "reason": "Amount too high for automated trading"
+}
+```
+
+**Step 7: Agent retries with grant.** The agent includes the `grant_id` in the retry request:
+
+```http
+POST /api/trade/execute
+Authorization: AIP <token>
+X-AIP-Grant: gnt_3f7a2b1c
+Content-Type: application/json
+
+{
+  "pair": "BTC/USD",
+  "amount": 2500.00,
+  "side": "buy"
+}
+```
+
+The hub verifies the grant is valid, not expired, matches the action, and was issued for this agent.
+
+#### 7.6.3 Grant Properties
+
+Grants are **hub-local** — they are issued and enforced by the hub, not the IdP. This keeps the IdP as a pure identity layer.
+
+| Property | Description |
+|----------|-------------|
+| `grant_id` | Unique identifier issued by the hub |
+| `resource` | The specific resource or endpoint the grant applies to |
+| `action` | The action being authorized |
+| `constraints` | Action-specific limits (amount, count, time window) |
+| `approved_by` | The principal or delegate who approved |
+| `approved_at` | When the grant was approved |
+| `expires_at` | When the grant expires (MUST have a TTL) |
+
+Grants MUST be:
+- **Time-limited** — every grant has an expiration. No permanent grants.
+- **Action-scoped** — a grant for "trade.execute" does not authorize "trade.withdraw".
+- **Agent-bound** — a grant issued to agent A cannot be used by agent B.
+
+Grants SHOULD be:
+- **Single-use or count-limited** — where appropriate, a grant authorizes one action or N actions, not unlimited actions within the TTL.
+- **Auditable** — hubs SHOULD log grant creation, usage, and expiration.
+
+#### 7.6.4 Principal Notification Endpoint
+
+To enable approval workflows, the principal or agent record MAY include a `notification_endpoint` — a URL where hubs can send approval requests.
+
+The `notification_endpoint` is registered with the IdP and optionally included in the AIP token:
+
+```json
+{
+  "principal": {
+    "type": "human",
+    "id": "dev_alice_9k2m",
+    "name": "Alice",
+    "notification_endpoint": "https://hooks.example.com/alice/approvals"
+  }
+}
+```
+
+The notification payload sent by the hub:
+
+```json
+{
+  "type": "approval_request",
+  "approval_id": "apr_8k2m9x4n",
+  "hub": "https://hub.example.com",
+  "agent_id": "aip:example.com:agent_7x8k2m",
+  "agent_name": "shark",
+  "action": "trade.execute",
+  "resource": "/api/trade/execute",
+  "details": {
+    "amount": 2500.00,
+    "currency": "USD"
+  },
+  "reason": "Amount exceeds confirmation threshold (500 USD)",
+  "approve_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/approve",
+  "deny_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/deny",
+  "expires_at": "2026-04-22T18:00:00Z"
+}
+```
+
+The `notification_endpoint` is OPTIONAL. If not present, the hub falls back to its own notification mechanism (portal inbox, email to registered contact, etc.). Agents operating fully autonomously (no human in the loop) would not have a notification endpoint — the hub must decide whether to auto-deny or allow based on its own policy.
+
+#### 7.6.5 Relationship to Delegation Thresholds
+
+Section 7.4 defines `requires_confirmation_above` in the delegation scope. This section defines _how_ that confirmation happens in practice:
+
+1. The IdP includes `requires_confirmation_above: 500` in the JWT delegation claim.
+2. The hub reads this threshold from the token.
+3. When the agent requests an action exceeding the threshold, the hub initiates the grant request flow (7.6.2).
+4. The principal approves or denies via the hub.
+5. The hub issues a grant scoped to the specific action.
+
+AIP defines the threshold in the token and the grant interaction pattern. The hub implements the policy enforcement and the principal notification. The IdP is not involved at grant-time — it provided the identity and claims at token-time.
+
+#### 7.6.6 Hub Endpoints for Grants
+
+Hubs implementing approval workflows SHOULD expose the following endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/aip/grants/{approval_id}` | Poll grant status (agent) |
+| `POST` | `/aip/grants/{approval_id}/approve` | Approve request (principal) |
+| `POST` | `/aip/grants/{approval_id}/deny` | Deny request (principal) |
+| `GET` | `/aip/grants` | List pending/active grants (principal) |
+
+These are hub endpoints, not IdP endpoints. The `/aip/grants` prefix is a convention — hubs MAY use different paths.
 
 ---
 
