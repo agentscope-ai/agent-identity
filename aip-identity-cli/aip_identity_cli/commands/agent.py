@@ -65,7 +65,32 @@ def list_agents() -> None:
         if agent_json.exists():
             with open(agent_json) as f:
                 meta = json.load(f)
-            typer.echo(f"{meta['name']}  {meta['agent_id']}")
+
+            agent_id = meta["agent_id"]
+            kid = meta.get("kid", "")
+
+            # Verify agent exists on the IdP
+            idp_url = meta.get("idp_url") or AIPIdentity._idp_url_from_agent_id(
+                agent_id
+            )
+            status = ""
+            try:
+                resp = httpx.get(f"{idp_url}/aip/agents/{agent_id}")
+                if resp.status_code == 200:
+                    remote = resp.json()
+                    remote_kids = [k["kid"] for k in remote.get("public_keys", [])]
+                    if kid and kid in remote_kids:
+                        status = "  \u2713"
+                    else:
+                        status = "  \u2717 key not found on IdP"
+                elif resp.status_code == 404:
+                    status = "  \u2717 not found on IdP"
+                else:
+                    status = f"  ? IdP returned {resp.status_code}"
+            except httpx.HTTPError:
+                status = "  ? IdP unreachable"
+
+            typer.echo(f"{meta['name']}  {agent_id}  {kid}{status}")
             found = True
 
     if not found:
