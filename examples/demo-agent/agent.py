@@ -15,10 +15,8 @@ from aip_identity_sdk import AIPIdentity, AIPClient
 
 
 async def main():
-    # Load identity (from zip, file, or env)
-    identity = AIPIdentity.from_zip(
-        "/Users/yilei.z/Downloads/portal-agent.zip"
-    )  # Adjust path if needed
+    # Load identity (from zip created from portal, profile created from aip cli, or env)
+    identity = AIPIdentity.from_zip("/path/to/agent/zip/portal-agent.zip")
 
     # identity = AIPIdentity.from_profile('cli-agent')
     identity.idp_url = "http://localhost:8000"  # Local dev override if port is not 80 (production uses https://{domain} by default)
