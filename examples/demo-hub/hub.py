@@ -21,7 +21,7 @@ Start: uvicorn hub:app --port 8001
 
 import secrets
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -86,11 +86,17 @@ class ApprovalRequest:
     agent_id: str
     agent_name: str
     principal_id: str
+    # Hub-native fields — used for local-mode grant enforcement.
     resource: str
     action: str
     details: dict[str, Any]
     reason: str
     expires_at: datetime
+    # Protocol-generic display + payload, built by the action endpoint and
+    # forwarded to the IdP verbatim in delegated mode.
+    summary: str = ""
+    facts: list[dict[str, Any]] = field(default_factory=list)
+    hub_payload: dict[str, Any] = field(default_factory=dict)
     status: str = "pending"
     grant_id: str | None = None
     denial_reason: str | None = None
@@ -171,13 +177,13 @@ async def _discover_idp_approval_endpoint() -> str | None:
 async def _delegate_to_idp(approval: ApprovalRequest) -> None:
     endpoint = await _discover_idp_approval_endpoint()
     assert endpoint is not None
-    payload = {
+    payload: dict[str, Any] = {
         "hub_id": HUB_URL,
         "agent_id": approval.agent_id,
-        "resource": approval.resource,
-        "action": approval.action,
-        "details": approval.details,
-        "reason": approval.reason,
+        "summary": approval.summary,
+        "facts": approval.facts,
+        "payload": approval.hub_payload,
+        "ttl_seconds": int(APPROVAL_TTL.total_seconds()),
     }
     resp = await _client().post(endpoint, json=payload)
     resp.raise_for_status()
@@ -215,7 +221,8 @@ async def _poll_idp_for_decision(approval: ApprovalRequest) -> None:
         return
 
     if claims["decision"] == "approved":
-        constraints = claims.get("constraints", {})
+        ctx = claims.get("ctx", {}) or {}
+        constraints = _build_grant_constraints(ctx)
         grant_id = f"gnt_{secrets.token_hex(5)}"
         now = _now()
         grant = Grant(
@@ -225,7 +232,7 @@ async def _poll_idp_for_decision(approval: ApprovalRequest) -> None:
             resource=approval.resource,
             action=approval.action,
             constraints=constraints,
-            approved_by=claims.get("approved_by", "principal"),
+            approved_by=claims.get("decided_by", "principal"),
             approved_at=now,
             expires_at=now + GRANT_TTL,
         )
@@ -240,8 +247,31 @@ async def _poll_idp_for_decision(approval: ApprovalRequest) -> None:
         )
     else:
         approval.status = "denied"
-        approval.denial_reason = claims.get("reason", "Denied by principal")
+        approval.denial_reason = claims.get("note") or "Denied by principal"
         print(f"[poll] IdP denied {approval.approval_id}: {approval.denial_reason}")
+
+
+def _build_grant_constraints(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Derive local grant constraints from the JWT ctx echo.
+
+    ctx is the hub's original opaque payload, echoed back by the IdP. The
+    principal's decision is binary — all enforcement knobs (amount caps,
+    path matching, currency) come from what the hub originally requested.
+    This is also the hub's replay cap: the signed grant can only be used
+    for the action it was issued for, with the amount/path originally
+    submitted.
+    """
+    constraints: dict[str, Any] = {}
+    requested_amount = ctx.get("amount")
+    if isinstance(requested_amount, (int, float)) and not isinstance(
+        requested_amount, bool
+    ):
+        constraints["max_amount"] = requested_amount
+        if "currency" in ctx:
+            constraints["currency"] = ctx["currency"]
+    if "path" in ctx:
+        constraints["path"] = ctx["path"]
+    return constraints
 
 
 async def _verify_decision_jwt(token: str, expected_agent_id: str) -> dict | None:
@@ -305,13 +335,20 @@ def _notify_principal(approval: ApprovalRequest, principal_claim: dict) -> None:
 
 async def _start_approval(
     agent,
+    *,
     resource: str,
     action: str,
     details: dict,
     reason: str,
+    summary: str,
+    facts: list[dict[str, Any]],
 ) -> ApprovalRequest:
     approval_id = f"apr_{secrets.token_hex(5)}"
     expires = _now() + APPROVAL_TTL
+    # hub_payload is what the IdP echoes back in the decision JWT's ctx.
+    # Embed resource/action so we can correlate; embed details so we can
+    # apply hub-side policy (replay caps, path matching) from the JWT.
+    hub_payload = {"resource": resource, "action": action, **details}
     approval = ApprovalRequest(
         approval_id=approval_id,
         agent_id=agent.agent_id,
@@ -322,6 +359,9 @@ async def _start_approval(
         details=details,
         reason=reason,
         expires_at=expires,
+        summary=summary,
+        facts=facts,
+        hub_payload=hub_payload,
     )
     if await _discover_idp_approval_endpoint() is not None:
         try:
@@ -424,6 +464,16 @@ async def book_flight(
             "currency": "USD",
         },
         reason=f"Flight cost exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        summary=f"Book flight to {body.destination} for ${body.amount:,.2f}",
+        facts=[
+            {"label": "Destination", "value": body.destination},
+            {
+                "label": "Amount",
+                "value": f"${body.amount:,.2f} USD",
+                "kind": "money",
+            },
+            {"label": "Refundable", "value": "Yes" if body.refundable else "No"},
+        ],
     )
     return _approval_response(
         approval,
@@ -470,6 +520,15 @@ async def delete_file(
         action=action,
         details={"path": body.path},
         reason="Destructive action — always requires principal approval",
+        summary=f"Delete file: {body.path}",
+        facts=[
+            {"label": "Path", "value": body.path},
+            {
+                "label": "Reversible",
+                "value": "No — destructive",
+                "kind": "risk",
+            },
+        ],
     )
     return _approval_response(approval)
 
@@ -517,6 +576,16 @@ async def trade(
             "currency": "USD",
         },
         reason=f"Trade amount exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        summary=f"{body.side.upper()} ${body.amount:,.2f} of {body.pair}",
+        facts=[
+            {"label": "Pair", "value": body.pair},
+            {"label": "Side", "value": body.side},
+            {
+                "label": "Amount",
+                "value": f"${body.amount:,.2f} USD",
+                "kind": "money",
+            },
+        ],
     )
     return _approval_response(
         approval,

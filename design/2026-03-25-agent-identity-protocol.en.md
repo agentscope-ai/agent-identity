@@ -347,6 +347,9 @@ GET https://identity.alibaba.com/.well-known/aip-configuration
   "jwks_uri": "https://identity.alibaba.com/.well-known/aip-jwks",
   "registration_endpoint": "https://identity.alibaba.com/aip/agents",
   "activity_endpoint": "https://identity.alibaba.com/aip/activity",
+  "approval_endpoint": "https://identity.alibaba.com/aip/approvals",
+  "approval_methods_supported": ["portal"],
+  "approval_schema_version": 2,
   "supported_algorithms": ["EdDSA"],
   "aip_version": "1.0"
 }
@@ -655,13 +658,12 @@ Content-Type: application/json
 {
   "status": "approval_required",
   "approval_id": "apr_8k2m9x4n",
-  "resource": "/api/trade/execute",
-  "action": "trade.execute",
-  "details": {
-    "amount": 2500.00,
-    "currency": "USD",
-    "pair": "BTC/USD"
-  },
+  "summary": "Execute BTC/USD buy for $2,500.00",
+  "facts": [
+    {"label": "Pair", "value": "BTC/USD"},
+    {"label": "Side", "value": "buy"},
+    {"label": "Amount", "value": "$2,500.00 USD", "kind": "money"}
+  ],
   "threshold_exceeded": "requires_confirmation_above: 500",
   "poll_url": "/aip/grants/apr_8k2m9x4n",
   "expires_at": "2026-04-22T18:00:00Z"
@@ -671,10 +673,11 @@ Content-Type: application/json
 **Step 4: Hub notifies the principal.** The hub sends a notification to the principal using the `notification_endpoint` from the agent's AIP token or a hub-registered contact. The notification mechanism is hub-specific (webhook, email, push notification, in-app message). AIP does not define the transport — only that the notification SHOULD include:
 
 - Agent identity (`agent_id`, `agent_name`)
-- Requested action and resource
-- Why approval is needed (threshold exceeded, first-time access, etc.)
+- A one-line `summary` and a structured `facts` list for display to the principal
 - An approve/deny interface (URL, button, API endpoint)
 - Expiration time
+
+AIP does not model domain-specific fields (`amount`, `resource`, `action`, `path`) at the protocol layer. Hubs pre-render them into `facts` entries the principal's UI can display without interpreting. `kind` (`text`, `money`, `email`, `url`, `risk`) is a styling hint only — it carries no semantic meaning.
 
 **Step 5: Principal approves or denies.** The principal interacts with the hub directly (via portal, API, email link, etc.) to approve or deny the request.
 
@@ -792,13 +795,12 @@ The notification payload sent by the hub:
   "hub": "https://hub.example.com",
   "agent_id": "aip:example.com:agent_7x8k2m",
   "agent_name": "shark",
-  "action": "trade.execute",
-  "resource": "/api/trade/execute",
-  "details": {
-    "amount": 2500.00,
-    "currency": "USD"
-  },
-  "reason": "Amount exceeds confirmation threshold (500 USD)",
+  "summary": "Execute BTC/USD buy for $2,500.00",
+  "facts": [
+    {"label": "Pair", "value": "BTC/USD"},
+    {"label": "Side", "value": "buy"},
+    {"label": "Amount", "value": "$2,500.00 USD", "kind": "money"}
+  ],
   "approve_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/approve",
   "deny_url": "https://hub.example.com/aip/grants/apr_8k2m9x4n/deny",
   "expires_at": "2026-04-22T18:00:00Z"
@@ -851,11 +853,12 @@ An IdP supporting delegated approval advertises an `approval_endpoint` in its di
   "jwks_uri": "...",
   "approval_endpoint": "https://idp.example.com/aip/approvals",
   "approval_methods_supported": ["portal", "webhook", "push"],
+  "approval_schema_version": 2,
   "aip_version": "1.0"
 }
 ```
 
-A hub that trusts this IdP SHOULD use the advertised `approval_endpoint` for requests that would otherwise enter the hub-local flow. A hub MAY opt out per-request (for example, when the hub's policy needs context the IdP's generic UI cannot render). If `approval_endpoint` is absent, the hub MUST fall back to the baseline flow (7.6.2).
+A hub that trusts this IdP SHOULD use the advertised `approval_endpoint` for requests that would otherwise enter the hub-local flow. A hub MAY opt out per-request (for example, when the hub's policy needs context the IdP's generic UI cannot render). If `approval_endpoint` is absent, the hub MUST fall back to the baseline flow (7.6.2). `approval_schema_version` identifies the request/decision schema this section defines — version `2` is described below.
 
 ##### 7.6.7.2 Delegated Flow
 
@@ -883,7 +886,7 @@ sequenceDiagram
 
 Agents see the same interface as the baseline flow (202 + poll + retry with `X-AIP-Grant`). The delegation is invisible to them.
 
-**Step 1 — Hub submits.** The hub POSTs request details to the IdP:
+**Step 1 — Hub submits.** The hub POSTs a protocol-generic request to the IdP. Display (`summary`, `facts`) is separate from enforcement data (`payload`), which the IdP treats as opaque:
 
 ```http
 POST /aip/approvals
@@ -892,16 +895,37 @@ Content-Type: application/json
 {
   "hub_id": "https://hub.example.com",
   "agent_id": "aip:example.com:agent_7x8k2m",
-  "resource": "/api/trade/execute",
-  "action": "trade.execute",
-  "details": {"amount": 2500.00, "currency": "USD"},
-  "reason": "Amount exceeds confirmation threshold (500 USD)"
+  "summary": "Execute BTC/USD buy for $2,500.00",
+  "facts": [
+    {"label": "Pair", "value": "BTC/USD"},
+    {"label": "Side", "value": "buy"},
+    {"label": "Amount", "value": "$2,500.00 USD", "kind": "money"}
+  ],
+  "payload": {
+    "resource": "/api/trade/execute",
+    "action": "trade.execute",
+    "amount": 2500.00,
+    "currency": "USD",
+    "pair": "BTC/USD",
+    "side": "buy"
+  },
+  "ttl_seconds": 600
 }
 ```
 
-The IdP looks up the agent's principal, creates a pending approval, and returns an `approval_id`. The IdP MAY verify the hub's identity (mTLS, registered hub_id, signed request); AIP does not mandate a specific mechanism.
+Field summary:
 
-**Step 2 — Principal decides.** The IdP surfaces the request to the principal via its own channels (portal, push, SMS). This UX is out of scope for AIP.
+| Field | Purpose |
+|-------|---------|
+| `hub_id`, `agent_id` | Identity routing. The IdP resolves `agent_id` to its principal. |
+| `summary` | One-line description for list views. |
+| `facts[]` | Structured key/value pairs for the detail view. The IdP does not interpret `value`. |
+| `payload` | Opaque to the IdP. Echoed verbatim into the decision JWT's `ctx` claim so the hub can correlate and enforce. |
+| `ttl_seconds` | Optional. The IdP MAY cap it. |
+
+**The IdP does not interpret `payload`.** Business rules like "amount must be positive" or "currency must be ISO" are hub policy, enforced when the hub consumes the decision JWT. The IdP stores, displays, collects a decision, and signs. That's it.
+
+**Step 2 — Principal decides.** The IdP surfaces the request to the principal via its own channels (portal, push, SMS). This UX is out of scope for AIP. **The decision is binary** — approve or deny, with an optional free-text `note`. AIP does not model per-approval parameter tuning; principal-side caps belong in the delegation scope (§7.4), not at each approval.
 
 **Step 3 — IdP signs the decision.** The IdP signs a decision JWT using the same key that signs agent tokens. Any hub that already trusts the IdP can verify it — no new keys, no new trust roots.
 
@@ -915,14 +939,25 @@ The IdP looks up the agent's principal, creates a pending approval, and returns 
   "type": "approval_decision",
   "approval_id": "apr_8k2m9x4n",
   "decision": "approved",
-  "constraints": {"max_amount": 2500.00, "currency": "USD"},
-  "approved_by": "dev_alice_9k2m"
+  "decided_by": "dev_alice_9k2m",
+  "ctx": {
+    "resource": "/api/trade/execute",
+    "action": "trade.execute",
+    "amount": 2500.00,
+    "currency": "USD",
+    "pair": "BTC/USD",
+    "side": "buy"
+  },
+  "note": null
 }
 ```
 
-For denials, `decision` is `"denied"`, a `reason` is included, and `constraints` is omitted.
+- `ctx` is the hub's original `payload` echoed verbatim. The hub correlates it to its local request and reads its own business fields from it.
+- `note` is the principal's optional free-text remark (especially useful for denials — telling the agent *why* it was rejected so the next attempt can adjust).
 
-**Step 4 — Hub materializes the grant.** On poll, the hub verifies the JWT against the IdP's JWKS, checks that `aud` matches its own URL and `sub` matches the requesting agent, then issues a local grant with the JWT's `constraints`. From this point the flow is identical to the baseline — the agent retries with `X-AIP-Grant`, the hub enforces single-use consumption.
+For denials, `decision` is `"denied"`; `ctx` is still echoed so the hub can correlate; `note` carries the reason.
+
+**Step 4 — Hub materializes the grant.** On poll, the hub verifies the JWT against the IdP's JWKS, checks that `aud` matches its own URL, `sub` matches the requesting agent, and `approval_id` matches its local record. It then reads `ctx` to extract enforcement parameters (amount, path, etc.) and issues a local grant per its own policy. The **replay cap** — ensuring the signed decision cannot be used for a larger action than originally requested — is enforced by the hub from `ctx`, because the IdP is deliberately unaware of what the fields mean. From this point the flow is identical to the baseline.
 
 ##### 7.6.7.3 Why a Signed Decision, Not a Status Code
 
