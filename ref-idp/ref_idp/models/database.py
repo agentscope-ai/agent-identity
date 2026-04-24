@@ -26,6 +26,7 @@ class Principal(Base):
     type = Column(String, nullable=False)  # "human" or "org"
     external_id = Column(String, unique=True, nullable=False)  # e.g. "github:alice"
     name = Column(String, nullable=False)
+    notification_endpoint = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
     agents = relationship("Agent", back_populates="principal")

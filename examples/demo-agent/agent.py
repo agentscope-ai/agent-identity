@@ -1,37 +1,206 @@
 """
-Demo: Autonomous agent authenticating with a hub using AIP.
+Demo: AIP agent with subcommands that exercise the approval workflow.
+
+Subcommands:
+  book <destination> <amount>        book a flight
+  delete <path>                      delete a file (always needs approval)
+  trade <pair> <amount> <side>       execute a trade (buy|sell)
+  demo                               run a scripted sequence (default)
+
+The agent's approval handling is the same for every command: on 202,
+poll the hub, retry with X-AIP-Grant once a grant is issued.
 
 Prerequisites:
-  1. Start the IdP: cd ref-idp && uvicorn ref_idp.main:app --port 8000
-  2. Start the demo hub: cd examples/demo-hub && uvicorn hub:app --port 8001
-  3. Create an agent identity:
-     aip init --provider http://localhost:8000 --dev --name alice
-     aip agent create --name demo-agent
-  4. Run this script: python agent.py
+  1. aip-idp (or ref-idp) on :8000
+  2. demo-hub on :8001
+  3. Agent identity at ~/.aip/agents/* (created via `aip agent create`)
 """
 
+from __future__ import annotations
+
+import argparse
 import asyncio
-from aip_identity_sdk import AIPIdentity, AIPClient
+import sys
+from typing import Any
+
+from aip_identity_sdk import AIPClient, AIPIdentity
+
+HUB_URL = "http://localhost:8001"
+POLL_INTERVAL_SECONDS = 2
+POLL_TIMEOUT_SECONDS = 300
 
 
-async def main():
-    # Load identity (from zip created from portal, profile created from aip cli, or env)
-    identity = AIPIdentity.from_zip("/path/to/agent/zip/portal-agent.zip")
+async def execute_action(
+    client: AIPClient,
+    path: str,
+    payload: dict[str, Any],
+    *,
+    label: str,
+) -> dict:
+    """Call the hub; transparently handle 202 + poll + retry-with-grant."""
+    print(f"\n→ {label}")
+    resp = await client.post(f"{HUB_URL}{path}", json=payload)
 
-    # identity = AIPIdentity.from_profile('cli-agent')
-    identity.idp_url = "http://localhost:8000"  # Local dev override if port is not 80 (production uses https://{domain} by default)
-    client = AIPClient(identity)
+    if resp.status_code == 200:
+        print(f"  completed: {resp.json()}")
+        return resp.json()
 
-    hub_url = "http://localhost:8001"
+    if resp.status_code != 202:
+        raise RuntimeError(f"unexpected {resp.status_code}: {resp.text}")
 
-    # Make an authenticated request
-    response = await client.get(f"{hub_url}/api/whoami")
-    print(f"Hub says: {response.json()}")
+    body = resp.json()
+    approval_id = body["approval_id"]
+    via = body.get("approval_via", "hub")
+    note = body.get("threshold_exceeded", "approval required")
+    print(f"  {note} (approval via {via})")
+    print(f"  approval_id = {approval_id}")
+    if via == "idp":
+        print("  → approve at http://localhost:5173/portal/approvals")
+    else:
+        print(
+            f"  → principal must approve, e.g.:\n"
+            f"    cd examples/demo-hub && python approve.py approve {approval_id}"
+        )
 
-    # Make another request — token is cached and reused
-    response = await client.get(f"{hub_url}/api/ping")
-    print(f"Ping: {response.json()}")
+    grant_id = await _poll_for_grant(client, approval_id)
+    print(f"  grant issued: {grant_id} — retrying {label}")
+
+    retry = await client.post(
+        f"{HUB_URL}{path}",
+        json=payload,
+        headers={"X-AIP-Grant": grant_id},
+    )
+    if retry.status_code != 200:
+        raise RuntimeError(f"retry failed: {retry.status_code} {retry.text}")
+    print(f"  completed: {retry.json()}")
+    return retry.json()
+
+
+async def _poll_for_grant(client: AIPClient, approval_id: str) -> str:
+    poll_url = f"{HUB_URL}/aip/grants/{approval_id}"
+    deadline = asyncio.get_event_loop().time() + POLL_TIMEOUT_SECONDS
+    while asyncio.get_event_loop().time() < deadline:
+        resp = await client.get(poll_url)
+        resp.raise_for_status()
+        data = resp.json()
+        status = data["status"]
+        if status == "approved":
+            return data["grant"]["grant_id"]
+        if status == "denied":
+            raise RuntimeError(f"approval denied: {data.get('reason')}")
+        if status == "expired":
+            raise RuntimeError("approval expired")
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    raise TimeoutError(f"gave up waiting for approval {approval_id}")
+
+
+def _new_client() -> AIPClient:
+    identity = AIPIdentity.from_profile()
+    identity.idp_url = "http://localhost:8000"
+    return AIPClient(identity)
+
+
+async def cmd_book(args):
+    client = _new_client()
+    await execute_action(
+        client,
+        "/api/book-flight",
+        {
+            "destination": args.destination,
+            "amount": args.amount,
+            "refundable": args.refundable,
+        },
+        label=f"book flight to {args.destination} for ${args.amount:.2f}",
+    )
+
+
+async def cmd_delete(args):
+    client = _new_client()
+    await execute_action(
+        client,
+        "/api/delete-file",
+        {"path": args.path},
+        label=f"delete file {args.path}",
+    )
+
+
+async def cmd_trade(args):
+    client = _new_client()
+    await execute_action(
+        client,
+        "/api/trade",
+        {"pair": args.pair, "amount": args.amount, "side": args.side},
+        label=f"{args.side} ${args.amount:.2f} of {args.pair}",
+    )
+
+
+async def cmd_demo(args):
+    client = _new_client()
+    whoami = await client.get(f"{HUB_URL}/api/whoami")
+    print(f"hub says: {whoami.json()}")
+
+    # Small booking — under threshold, auto-approved.
+    await execute_action(
+        client,
+        "/api/book-flight",
+        {"destination": "SFO", "amount": 299.00, "refundable": True},
+        label="book flight to SFO for $299.00",
+    )
+    # Big booking — triggers approval.
+    await execute_action(
+        client,
+        "/api/book-flight",
+        {"destination": "NYC", "amount": 1299.00, "refundable": False},
+        label="book flight to NYC for $1299.00",
+    )
+    # File delete — always triggers approval.
+    await execute_action(
+        client,
+        "/api/delete-file",
+        {"path": "/data/old-report.csv"},
+        label="delete /data/old-report.csv",
+    )
+    # Trade over threshold — triggers approval.
+    await execute_action(
+        client,
+        "/api/trade",
+        {"pair": "BTC/USD", "amount": 2500.00, "side": "buy"},
+        label="buy $2500.00 of BTC/USD",
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description="AIP demo agent")
+    subparsers = parser.add_subparsers(dest="cmd")
+
+    p_book = subparsers.add_parser("book", help="Book a flight")
+    p_book.add_argument("destination")
+    p_book.add_argument("amount", type=float)
+    p_book.add_argument("--refundable", action="store_true")
+    p_book.set_defaults(func=cmd_book)
+
+    p_delete = subparsers.add_parser("delete", help="Delete a file")
+    p_delete.add_argument("path")
+    p_delete.set_defaults(func=cmd_delete)
+
+    p_trade = subparsers.add_parser("trade", help="Execute a trade")
+    p_trade.add_argument("pair", help="e.g. BTC/USD")
+    p_trade.add_argument("amount", type=float)
+    p_trade.add_argument("side", choices=["buy", "sell"])
+    p_trade.set_defaults(func=cmd_trade)
+
+    p_demo = subparsers.add_parser("demo", help="Run a scripted sequence")
+    p_demo.set_defaults(func=cmd_demo)
+
+    args = parser.parse_args()
+    if not args.cmd:
+        args.func = cmd_demo
+    try:
+        asyncio.run(args.func(args))
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -817,7 +817,7 @@ Section 7.4 defines `requires_confirmation_above` in the delegation scope. This 
 4. The principal approves or denies via the hub.
 5. The hub issues a grant scoped to the specific action.
 
-AIP defines the threshold in the token and the grant interaction pattern. The hub implements the policy enforcement and the principal notification. The IdP is not involved at grant-time — it provided the identity and claims at token-time.
+AIP defines the threshold in the token and the grant interaction pattern. The hub implements the policy enforcement and the principal notification. In the baseline (hub-local) flow, the IdP is not involved at grant-time — it provided identity and claims at token-time. Section 7.6.7 defines an optional extension where the IdP participates in the decision step (but not in policy evaluation).
 
 #### 7.6.6 Hub Endpoints for Grants
 
@@ -831,6 +831,123 @@ Hubs implementing approval workflows SHOULD expose the following endpoints:
 | `GET` | `/aip/grants` | List pending/active grants (principal) |
 
 These are hub endpoints, not IdP endpoints. The `/aip/grants` prefix is a convention — hubs MAY use different paths.
+
+#### 7.6.7 IdP-Delegated Approval (Optional Extension)
+
+> For a concrete walk-through of this extension in a realistic enterprise deployment — one principal, three hubs across different platform teams, push-based approval — see the companion document [Approval Scenarios](./2026-04-23-approval-scenarios.en.md).
+
+Sections 7.6.1–7.6.6 describe the baseline where the hub owns approval state. This works well for cross-organization federation — each hub evaluates policy independently. But organizations operating their own IdP often want a unified approval experience: one queue for every pending decision across all their hubs, one audit trail, one set of delivery preferences (portal, push, email). This section defines an optional extension where the hub delegates the **decision step** to the principal's IdP, while retaining policy evaluation and enforcement locally.
+
+**Scope of the delegation.** The hub continues to decide *when* approval is needed and *what* constraints apply — policy stays with the hub. The IdP owns *who* decides and *how* they interact with the request. The IdP in this model is a decision-routing and signing service, not a policy engine.
+
+##### 7.6.7.1 Discovery
+
+An IdP supporting delegated approval advertises an `approval_endpoint` in its discovery document:
+
+```json
+{
+  "issuer": "https://idp.example.com",
+  "token_endpoint": "...",
+  "jwks_uri": "...",
+  "approval_endpoint": "https://idp.example.com/aip/approvals",
+  "approval_methods_supported": ["portal", "webhook", "push"],
+  "aip_version": "1.0"
+}
+```
+
+A hub that trusts this IdP SHOULD use the advertised `approval_endpoint` for requests that would otherwise enter the hub-local flow. A hub MAY opt out per-request (for example, when the hub's policy needs context the IdP's generic UI cannot render). If `approval_endpoint` is absent, the hub MUST fall back to the baseline flow (7.6.2).
+
+##### 7.6.7.2 Delegated Flow
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Hub
+    participant IdP
+    participant Principal
+
+    Agent->>Hub: Request action (AIP token)
+    Hub->>Hub: Policy → approval required
+    Hub->>IdP: POST /aip/approvals
+    IdP-->>Hub: approval_id
+    Hub-->>Agent: 202 + approval_id
+    IdP->>Principal: Surface request (portal / push / webhook)
+    Principal->>IdP: Approve or deny
+    IdP->>IdP: Sign decision JWT
+    Agent->>Hub: Poll /aip/grants/{id}
+    Hub->>IdP: Poll /aip/approvals/{id}
+    IdP-->>Hub: {status, decision_jwt}
+    Hub->>Hub: Verify JWT vs JWKS → materialize grant
+    Hub-->>Agent: Grant
+```
+
+Agents see the same interface as the baseline flow (202 + poll + retry with `X-AIP-Grant`). The delegation is invisible to them.
+
+**Step 1 — Hub submits.** The hub POSTs request details to the IdP:
+
+```http
+POST /aip/approvals
+Content-Type: application/json
+
+{
+  "hub_id": "https://hub.example.com",
+  "agent_id": "aip:example.com:agent_7x8k2m",
+  "resource": "/api/trade/execute",
+  "action": "trade.execute",
+  "details": {"amount": 2500.00, "currency": "USD"},
+  "reason": "Amount exceeds confirmation threshold (500 USD)"
+}
+```
+
+The IdP looks up the agent's principal, creates a pending approval, and returns an `approval_id`. The IdP MAY verify the hub's identity (mTLS, registered hub_id, signed request); AIP does not mandate a specific mechanism.
+
+**Step 2 — Principal decides.** The IdP surfaces the request to the principal via its own channels (portal, push, SMS). This UX is out of scope for AIP.
+
+**Step 3 — IdP signs the decision.** The IdP signs a decision JWT using the same key that signs agent tokens. Any hub that already trusts the IdP can verify it — no new keys, no new trust roots.
+
+```json
+{
+  "iss": "https://idp.example.com",
+  "sub": "aip:example.com:agent_7x8k2m",
+  "aud": "https://hub.example.com",
+  "iat": 1713800000,
+  "exp": 1713801800,
+  "type": "approval_decision",
+  "approval_id": "apr_8k2m9x4n",
+  "decision": "approved",
+  "constraints": {"max_amount": 2500.00, "currency": "USD"},
+  "approved_by": "dev_alice_9k2m"
+}
+```
+
+For denials, `decision` is `"denied"`, a `reason` is included, and `constraints` is omitted.
+
+**Step 4 — Hub materializes the grant.** On poll, the hub verifies the JWT against the IdP's JWKS, checks that `aud` matches its own URL and `sub` matches the requesting agent, then issues a local grant with the JWT's `constraints`. From this point the flow is identical to the baseline — the agent retries with `X-AIP-Grant`, the hub enforces single-use consumption.
+
+##### 7.6.7.3 Why a Signed Decision, Not a Status Code
+
+Returning a signed assertion rather than a bare HTTP status gives three properties that a response code alone cannot:
+
+- **Non-repudiation.** The hub retains cryptographic proof the IdP sanctioned the action — useful for audit, dispute resolution, and compliance reporting.
+- **Transport independence.** The decision is valid whether it arrived by poll, webhook, or sidecar.
+- **Delayed verification.** A third party investigating months later can re-verify without contacting the IdP, as long as JWKS history is retained.
+
+##### 7.6.7.4 Endpoints for Delegated Approval
+
+An IdP supporting delegated approval SHOULD expose:
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/aip/approvals` | Hub submits an approval request |
+| `GET` | `/aip/approvals/{approval_id}` | Hub polls for the signed decision |
+
+The IdP's own principal-facing endpoints (portal listing, approve/deny from the UI) are internal to the IdP and not part of this specification. The `/aip/approvals` prefix is a convention — IdPs MAY use different paths as long as `approval_endpoint` in discovery points at them.
+
+##### 7.6.7.5 Why this does not collapse the identity/policy boundary
+
+It is tempting, once delegated approval works, to push more policy into the IdP — time-of-day checks, IP allowlists, resource tag policies. **Do not.** AIP's separation means the same agent can run against hubs operated by different organizations with different policy engines. If the IdP becomes a policy engine, every hub on every cloud has to speak the IdP's policy language; the federation story collapses.
+
+The line: the IdP routes *human* decisions and signs them. Anything a machine can evaluate (thresholds, IP rules, rate limits) stays in the hub.
 
 ---
 

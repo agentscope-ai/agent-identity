@@ -89,15 +89,16 @@ async def exchange_token(body: TokenRequest, request: Request):
     idp_kid = app.state.idp_kid
     ttl = app.state.token_ttl_seconds
 
-    principal_claim = (
-        {
+    if principal:
+        principal_claim: dict = {
             "type": principal.type,
             "id": principal.id,
             "name": principal.name,
         }
-        if principal
-        else {"type": "unknown", "id": "", "name": ""}
-    )
+        if principal.notification_endpoint:
+            principal_claim["notification_endpoint"] = principal.notification_endpoint
+    else:
+        principal_claim = {"type": "unknown", "id": "", "name": ""}
 
     token = create_agent_token(
         agent_id=body.agent_id,
