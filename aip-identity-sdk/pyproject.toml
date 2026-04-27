@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aip-identity-sdk"
-version = "0.1.6"
+version = "0.1.7"
 description = "Agent Identity Protocol - Client SDK"
 license = "Apache-2.0"
 authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]

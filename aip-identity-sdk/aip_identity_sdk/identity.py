@@ -32,17 +32,25 @@ class AIPIdentity:
 
     @staticmethod
     def _idp_url_from_agent_id(agent_id: str) -> str:
-        """Derive IDP base URL from agent_id domain (e.g. 'aip:example.com:agent_x' -> 'https://example.com')."""
+        """Derive IDP base URL from agent_id domain.
+
+        Format is ``aip:<domain>:<name>`` where ``<domain>`` may itself contain
+        a port (e.g. ``aip:localhost:8000:agent_x``). We split off the first
+        segment (``aip``) and the last (``<name>``); everything in between is
+        the domain, preserving any embedded colons.
+
+        Examples:
+            aip:example.com:agent_x        -> https://example.com
+            aip:localhost:agent_x          -> http://localhost
+            aip:localhost:8000:agent_x     -> http://localhost:8000
+        """
         parts = agent_id.split(":")
-        if len(parts) >= 3:
-            domain = parts[1]
-            scheme = (
-                "http"
-                if domain == "localhost" or domain.startswith("localhost:")
-                else "https"
-            )
-            return f"{scheme}://{domain}"
-        raise ValueError(f"Cannot derive IDP URL from agent_id: {agent_id}")
+        if len(parts) < 3 or parts[0] != "aip":
+            raise ValueError(f"Cannot derive IDP URL from agent_id: {agent_id}")
+        domain = ":".join(parts[1:-1])
+        is_localhost = domain == "localhost" or domain.startswith("localhost:")
+        scheme = "http" if is_localhost else "https"
+        return f"{scheme}://{domain}"
 
     # -- class methods --------------------------------------------------------
 
