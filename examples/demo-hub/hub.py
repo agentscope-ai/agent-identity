@@ -17,6 +17,9 @@ Two approval modes are supported, auto-detected from the IdP's discovery doc:
 Agents see the same 202 + poll + X-AIP-Grant retry protocol in both modes.
 
 Start: uvicorn hub:app --port 8001
+The IdP target is selected by AIP_IDP (default: "local"); see IDP_PROFILES
+below. Set AIP_IDP_URL to override with an arbitrary URL. Match this
+to the agent-side AIP_IDP so the issued tokens are trusted.
 """
 
 import os

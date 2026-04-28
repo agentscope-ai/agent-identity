@@ -47,6 +47,23 @@ graph LR
 
 Local dev mode uses direct registration (no GitHub OAuth) so you can try the full flow without setting up a GitHub OAuth App.
 
+> **Tip — `make` shortcut.** The repo root has a `Makefile` wrapping the
+> hub/agent invocations below, with an `IDP=local|pre|prod` selector that
+> keeps both ends paired:
+>
+> ```bash
+> make hub                              # demo-hub against local IdP (default)
+> make hub IDP=pre                      # demo-hub against pre.agent-id.live
+>
+> make agent whoami                     # quick auth check
+> make agent demo                       # full scripted sequence
+> make agent trade BTC/USD 1000 buy IDP=pre
+> ```
+>
+> The full commands below remain valid (and are what `make` runs under the
+> hood). To switch IdP without `make`, set `AIP_IDP=pre` on both the hub
+> and agent commands.
+
 ### 1. Install packages (from repo root)
 
 ```

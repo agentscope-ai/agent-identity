@@ -94,6 +94,22 @@ cd examples/demo-hub && uvicorn hub:app --port 8001
 cd examples/demo-agent && python agent.py
 ```
 
+仓库根目录还提供了 `make` 快捷方式，封装了上述启动命令并支持在 `local`/`pre`/`prod`
+之间切换 IdP（共享同一 `IDP=` 选择器，确保 hub 与 agent 配对一致）：
+
+```bash
+make hub                              # local IdP（默认）
+make hub IDP=pre                      # 指向 pre.agent-id.live
+
+make agent whoami                     # 快速验证身份
+make agent demo                       # 跑完整脚本
+make agent trade BTC/USD 1000 buy IDP=pre
+```
+
+`local`/`pre`/`prod` 各自的 IdP URL 与身份在 `examples/demo-hub/hub.py`
+（`IDP_PROFILES`）与 `examples/demo-agent/agent.py`（`IDENTITY_PROFILES`）中维护，
+均通过 `AIP_IDP` 环境变量选择。
+
 
 ## 联邦制：谁都能开 IdP
 

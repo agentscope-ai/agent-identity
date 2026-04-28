@@ -11,10 +11,16 @@ Subcommands:
 The agent's approval handling is the same for every command: on 202,
 poll the hub, retry with X-AIP-Grant once a grant is issued.
 
+Identity is selected by AIP_IDP (default: "local"); see IDENTITY_PROFILES
+below for the available profiles. The hub must be started with the same
+AIP_IDP value so it trusts the matching IdP. The repo root Makefile wraps
+this:  make agent whoami IDP=pre.
+
 Prerequisites:
-  1. aip-idp (or ref-idp) on :8000
-  2. demo-hub on :8001
-  3. Agent identity at ~/.aip/agents/* (created via `aip agent create`)
+  1. An IdP reachable at the URL implied by AIP_IDP (local: ref-idp on :8000)
+  2. demo-hub on :8001, started with the same AIP_IDP
+  3. An identity loadable by the selected profile (~/.aip/agents/<name>/
+     for "profile:" specs, or a zip export for "zip:" specs)
 """
 
 from __future__ import annotations
