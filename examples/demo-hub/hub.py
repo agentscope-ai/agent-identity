@@ -19,11 +19,13 @@ Agents see the same 202 + poll + X-AIP-Grant retry protocol in both modes.
 Start: uvicorn hub:app --port 8001
 """
 
+import os
 import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import jwt as pyjwt
@@ -58,12 +60,37 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Demo Hub", lifespan=lifespan)
 
 HUB_URL = "http://localhost:8001"
-IDP_BASE_URL = "http://localhost:8000"
+
+# IdP target — pick a named profile via AIP_IDP, or override with AIP_IDP_URL.
+# Provider domain is derived from the URL so trust stays consistent.
+IDP_PROFILES = {
+    "local": "http://localhost:8000",
+    "pre": "https://pre.agent-id.live",
+    "prod": "https://agent-id.live",
+}
+
+
+def _resolve_idp_url() -> tuple[str, str]:
+    explicit = os.environ.get("AIP_IDP_URL")
+    if explicit:
+        return "custom", explicit
+    profile = os.environ.get("AIP_IDP", "local")
+    url = IDP_PROFILES.get(profile)
+    if url is None:
+        raise SystemExit(
+            f"AIP_IDP={profile!r} unknown; choose {list(IDP_PROFILES)} or set AIP_IDP_URL"
+        )
+    return profile, url
+
+
+_profile, IDP_BASE_URL = _resolve_idp_url()
+IDP_PROVIDER = urlparse(IDP_BASE_URL).netloc
+print(f"[config] IdP profile={_profile} → {IDP_BASE_URL} (provider={IDP_PROVIDER})")
 
 verifier = AIPVerifier(
-    trusted_providers=["localhost:8000"],
+    trusted_providers=[IDP_PROVIDER],
     audience=HUB_URL,
-    provider_urls={"localhost:8000": IDP_BASE_URL},
+    provider_urls={IDP_PROVIDER: IDP_BASE_URL},
 )
 
 # Hub policy for amount-based actions.
@@ -775,7 +802,7 @@ async def whoami(request: Request):
 async def hub_discovery():
     return {
         "service_id": HUB_URL,
-        "trusted_providers": ["localhost:8000"],
+        "trusted_providers": [IDP_PROVIDER],
         "local_mode": False,
         "aip_version": "1.0",
     }

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from typing import Any
 
@@ -29,6 +30,14 @@ from aip_identity_sdk import AIPClient, AIPIdentity
 HUB_URL = "http://localhost:8001"
 POLL_INTERVAL_SECONDS = 2
 POLL_TIMEOUT_SECONDS = 300
+
+# Identity source per AIP_IDP profile.
+# "profile:<name>" loads ~/.aip/agents/<name>/; "zip:<path>" loads a zip export.
+IDENTITY_PROFILES: dict[str, str] = {
+    "local": "profile:cli-agent-2",
+    "pre": "zip:/Users/yilei.z/Downloads/pre-portal-agent.zip",
+    "prod": "zip:/path/to/prod-agent.zip",
+}
 
 
 async def execute_action(
@@ -96,10 +105,18 @@ async def _poll_for_grant(client: AIPClient, approval_id: str) -> str:
 
 
 def _new_identity() -> AIPIdentity:
-    # identity = AIPIdentity.from_profile("cli-agent")
-    identity = AIPIdentity.from_zip("/Users/yilei.z/Downloads/portal-agent.zip")
-    # identity.idp_url = "http://pre.agent-id.live"
-    return identity
+    profile = os.environ.get("AIP_IDP", "local")
+    spec = IDENTITY_PROFILES.get(profile)
+    if spec is None:
+        raise SystemExit(
+            f"AIP_IDP={profile!r} unknown; choose {list(IDENTITY_PROFILES)}"
+        )
+    kind, _, value = spec.partition(":")
+    if kind == "profile":
+        return AIPIdentity.from_profile(value)
+    if kind == "zip":
+        return AIPIdentity.from_zip(value)
+    raise SystemExit(f"unknown loader kind {kind!r} in IDENTITY_PROFILES")
 
 
 def _new_client() -> AIPClient:
