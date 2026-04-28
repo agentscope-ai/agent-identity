@@ -2,6 +2,7 @@
 Demo: AIP agent with subcommands that exercise the approval workflow.
 
 Subcommands:
+  whoami                             authenticate to the hub and print identity
   book <destination> <amount>        book a flight
   delete <path>                      delete a file (always needs approval)
   trade <pair> <amount> <side>       execute a trade (buy|sell)
@@ -94,10 +95,32 @@ async def _poll_for_grant(client: AIPClient, approval_id: str) -> str:
     raise TimeoutError(f"gave up waiting for approval {approval_id}")
 
 
+def _new_identity() -> AIPIdentity:
+    # identity = AIPIdentity.from_profile("cli-agent")
+    identity = AIPIdentity.from_zip("/Users/yilei.z/Downloads/portal-agent.zip")
+    # identity.idp_url = "http://pre.agent-id.live"
+    return identity
+
+
 def _new_client() -> AIPClient:
-    identity = AIPIdentity.from_profile()
-    identity.idp_url = "http://localhost:8000"
-    return AIPClient(identity)
+    return AIPClient(_new_identity())
+
+
+async def cmd_whoami(args):
+    identity = _new_identity()
+    client = AIPClient(identity)
+
+    print("local identity:")
+    print(f"  agent_id = {identity.agent_id}")
+    print(f"  kid      = {identity.kid}")
+    print(f"  idp_url  = {identity.idp_url}")
+
+    print(f"\n→ GET {HUB_URL}/api/whoami")
+    resp = await client.get(f"{HUB_URL}/api/whoami")
+    resp.raise_for_status()
+    print("hub sees:")
+    for k, v in resp.json().items():
+        print(f"  {k} = {v}")
 
 
 async def cmd_book(args):
@@ -172,6 +195,11 @@ async def cmd_demo(args):
 def main():
     parser = argparse.ArgumentParser(description="AIP demo agent")
     subparsers = parser.add_subparsers(dest="cmd")
+
+    p_whoami = subparsers.add_parser(
+        "whoami", help="Authenticate to the hub and print identity"
+    )
+    p_whoami.set_defaults(func=cmd_whoami)
 
     p_book = subparsers.add_parser("book", help="Book a flight")
     p_book.add_argument("destination")

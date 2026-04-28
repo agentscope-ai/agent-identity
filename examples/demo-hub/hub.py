@@ -61,9 +61,9 @@ HUB_URL = "http://localhost:8001"
 IDP_BASE_URL = "http://localhost:8000"
 
 verifier = AIPVerifier(
-    trusted_providers=["localhost"],
+    trusted_providers=["localhost:8000"],
     audience=HUB_URL,
-    provider_urls={"localhost": IDP_BASE_URL},
+    provider_urls={"localhost:8000": IDP_BASE_URL},
 )
 
 # Hub policy for amount-based actions.
@@ -775,7 +775,7 @@ async def whoami(request: Request):
 async def hub_discovery():
     return {
         "service_id": HUB_URL,
-        "trusted_providers": ["localhost"],
+        "trusted_providers": ["localhost:8000"],
         "local_mode": False,
         "aip_version": "1.0",
     }
