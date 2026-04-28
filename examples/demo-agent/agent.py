@@ -45,6 +45,15 @@ IDENTITY_PROFILES: dict[str, str] = {
     "prod": "zip:/path/to/prod-agent.zip",
 }
 
+# Where the principal approves IdP-delegated requests (Model 3) — printed as
+# a hint when the hub returns approval_via=idp. Local dev runs the portal on
+# Vite's 5173; hosted envs co-serve it with the IdP.
+PORTAL_URLS: dict[str, str] = {
+    "local": "http://localhost:5173/portal/approvals",
+    "pre": "https://pre.agent-id.live/portal/approvals",
+    "prod": "https://agent-id.live/portal/approvals",
+}
+
 
 async def execute_action(
     client: AIPClient,
@@ -71,7 +80,10 @@ async def execute_action(
     print(f"  {note} (approval via {via})")
     print(f"  approval_id = {approval_id}")
     if via == "idp":
-        print("  → approve at http://localhost:5173/portal/approvals")
+        portal = PORTAL_URLS.get(os.environ.get("AIP_IDP", "local"), "")
+        print(
+            f"  → approve at {portal}" if portal else "  → approve via the IdP portal"
+        )
     else:
         print(
             f"  → principal must approve, e.g.:\n"
