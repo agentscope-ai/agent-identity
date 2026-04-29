@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,7 +15,14 @@ from cryptography.hazmat.primitives.serialization import (
 
 
 class AIPActivityReporter:
-    """Reports agent activity to an AIP activity tracker, signed with Ed25519."""
+    """Reports agent activity to an AIP activity tracker, signed with Ed25519.
+
+    DEPRECATED: this implements the legacy hub-signed session-attestation flow
+    (POST /aip/reports). The new event-roll-up design replaces it with
+    `AIPVerifier.report_event` (granular events POSTed to /aip/activity;
+    server-side aggregation produces session attestations). Will be removed
+    in the next minor release.
+    """
 
     def __init__(
         self,
@@ -22,6 +30,13 @@ class AIPActivityReporter:
         service_private_key_bytes: bytes,
         activity_tracker_url: str,
     ) -> None:
+        warnings.warn(
+            "AIPActivityReporter is deprecated and will be removed in the next "
+            "minor release. Use AIPVerifier.report_event for the event-roll-up "
+            "flow.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._service_id = service_id
         self._activity_tracker_url = activity_tracker_url.rstrip("/")
         self._private_key = _load_private_key(service_private_key_bytes)
