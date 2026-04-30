@@ -29,7 +29,7 @@ The rename touches three repos, three published PyPI packages, a deployed prepro
 - Domain: `agent-id.live` and `pre.agent-id.live`
 - Top-level repo: `agent-identity`
 - IdP deploy package name: `dail-agent-id` (internal Alibaba, never used "AIP")
-- The PyPI brand `agent-id-*` is fully unclaimed (verified 2026-04-30: 404 on `agent-id`, `agent-id-sdk`, `agent-id-service-sdk`, `agent-id-verify`, `agent-id-cli`)
+- The PyPI brand `agent-id-*` is fully unclaimed (verified 2026-04-30: 404 on `agent-id`, `agent-id-client-sdk`, `agent-id-service-sdk`, `agent-id-verify`, `agent-id-cli`)
 
 ## 4. What does NOT change (out of scope)
 
@@ -75,15 +75,15 @@ Smallest possible diff that delivers the new framing. Three text changes only:
 
 Publish under the new names with same code, no warnings yet:
 
-- `agent-id-sdk` v0.1.0 — copy of `aip-identity-sdk` v0.1.7 with import path `agent_id_sdk`
+- `agent-id-client-sdk` v0.1.0 — copy of `aip-identity-sdk` v0.1.7 with import path `agent_id_client_sdk`
 - `agent-id-service-sdk` v0.1.0 — copy of `aip-identity-verify` v0.1.5 with import path `agent_id_service_sdk`
 - `agent-id-cli` v0.1.0 — copy of `aip-identity-cli` v0.1.3 with import path `agent_id_cli`
 
 Note: `agent-id-service-sdk` (not `agent-id-verify` or `agent-id-hub`) because the package does both verification AND activity reporting, and "service" disambiguates from the IdP (where "hub" sounded like a singular central thing and "verify" hid the activity-reporting half). The `-sdk` suffix marks it as a developer library, not a running service.
 
-Repo layout in `agent-identity`: keep old subdirs, add new ones (`agent-id-sdk/`, `agent-id-service-sdk/`, `agent-id-cli/`). Old packages keep building from their dirs, new packages from new dirs. This avoids forcing internal consumers to migrate immediately.
+Repo layout in `agent-identity`: keep old subdirs, add new ones (`agent-id-client-sdk/`, `agent-id-service-sdk/`, `agent-id-cli/`). Old packages keep building from their dirs, new packages from new dirs. This avoids forcing internal consumers to migrate immediately.
 
-**Done when:** `pip install agent-id-sdk` works, both old and new published, internal CI uses new names, demo-agent and demo-hub still work on old names.
+**Done when:** `pip install agent-id-client-sdk` works, both old and new published, internal CI uses new names, demo-agent and demo-hub still work on old names.
 
 ---
 
@@ -140,7 +140,7 @@ deployment.
 
 Anyone pinned to `aip-identity-sdk@0.1.7` (or earlier) will hit 404s
 when calling the upgraded IdP. The Phase 7 bridge release of the old
-package re-exports from `agent-id-sdk` so `pip install aip-identity-sdk`
+package re-exports from `agent-id-client-sdk` so `pip install aip-identity-sdk`
 keeps working transparently — but pre-bridge versions are dead. Since
 only a couple of internal projects use the old packages and we control
 their deployment, this is acceptable.
@@ -162,7 +162,7 @@ emits or accepts the legacy names.
 With Phase 4 hard-cutover, emitter/receiver wire-format dual-emit is
 moot. Phase 5 narrows to package-import migration:
 
-- `demo-agent`, `demo-hub`, `ref-idp` updated to use `agent-id-sdk` /
+- `demo-agent`, `demo-hub`, `ref-idp` updated to use `agent-id-client-sdk` /
   `agent-id-service-sdk` imports.
 - `aip-activity` updates dep from `aip-identity-verify` to `agent-id-service-sdk`.
 - Frontend portal: text-replace `AIP` → `AgentID` in user-visible strings.
@@ -189,22 +189,22 @@ These don't affect external surface — internal cleanup only:
 
 Per the deprecation pattern:
 
-- `aip-identity-sdk` v0.2.0 — `DeprecationWarning` at import + re-exports from `agent_id_sdk`, runtime dep on `agent-id-sdk`.
+- `aip-identity-sdk` v0.2.0 — `DeprecationWarning` at import + re-exports from `agent_id_client_sdk`, runtime dep on `agent-id-client-sdk`.
 - Same for `aip-identity-verify` v0.2.0 → re-exports from `agent_id_service_sdk`, runtime dep on `agent-id-service-sdk`.
 - Same for `aip-identity-cli` v0.2.0 → re-exports from `agent_id_cli`, runtime dep on `agent-id-cli`.
-- README of each old package: lead with "**DEPRECATED — use agent-id-sdk/hub/cli**".
+- README of each old package: lead with "**DEPRECATED — use agent-id-client-sdk/hub/cli**".
 
 Bridge `__init__.py` template:
 
 ```python
 import warnings
 warnings.warn(
-    "aip-identity-sdk is renamed to agent-id-sdk. "
-    "Install agent-id-sdk; this package will stop receiving updates.",
+    "aip-identity-sdk is renamed to agent-id-client-sdk. "
+    "Install agent-id-client-sdk; this package will stop receiving updates.",
     DeprecationWarning,
     stacklevel=2,
 )
-from agent_id_sdk import *  # noqa: F401,F403
+from agent_id_client_sdk import *  # noqa: F401,F403
 ```
 
 **Done when:** old packages installable but warn loudly; new packages canonical.
@@ -245,12 +245,12 @@ history hits.
 | Old PyPI users (pinned to aip-identity-* < bridge release) hit 404s | Accepted — only a couple of internal projects use these and we coordinate their rollout. Phase 7 bridge release covers everyone who upgrades. |
 | Spec terminology drifts between EN and ZH | Phase 3 translates ZH only after EN is final; do not maintain in parallel. |
 | Memory of "AIP" in old logs / SLS topics | Accept it. Historical data stays under old topic names; new data goes new topic. Don't migrate. |
-| `agent-id-sdk` PyPI name squatted before we publish | Verified clear 2026-04-30; reserve immediately at start of Phase 2 (publish a v0.0.0 placeholder if needed). |
+| `agent-id-client-sdk` PyPI name squatted before we publish | Verified clear 2026-04-30; reserve immediately at start of Phase 2 (publish a v0.0.0 placeholder if needed). |
 
 ## 8. Definition of done (overall)
 
 - All three repos build, test, deploy under new names.
-- `pip install agent-id-sdk` and `agent-id-service-sdk` are the documented install path.
+- `pip install agent-id-client-sdk` and `agent-id-service-sdk` are the documented install path.
 - Spec at `agent-identity/design/` reads as "AgentID — Identity Profile for AI Agents" throughout, EN and ZH consistent.
 - `pre.agent-id.live` runs the renamed IdP without functional change to external behavior except added new endpoints/headers.
 - Old PyPI packages yanked but historical installs still resolve.

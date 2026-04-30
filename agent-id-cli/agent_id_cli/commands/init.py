@@ -10,7 +10,7 @@ from typing import Optional
 
 import typer
 
-from agent_id_sdk.manage import (
+from agent_id_client_sdk.manage import (
     get_config_path,
     save_config,
     device_flow_init,

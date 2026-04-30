@@ -6,8 +6,8 @@ from pathlib import Path
 
 import typer
 
-from agent_id_sdk.identity import AIPIdentity
-from agent_id_sdk.manage import (
+from agent_id_client_sdk.identity import AIPIdentity
+from agent_id_client_sdk.manage import (
     get_agent_dir,
     create_agent,
     load_private_key,

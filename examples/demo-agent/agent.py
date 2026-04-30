@@ -31,7 +31,7 @@ import os
 import sys
 from typing import Any
 
-from agent_id_sdk import AIPClient, AIPIdentity
+from agent_id_client_sdk import AIPClient, AIPIdentity
 
 HUB_URL = "http://localhost:8001"
 POLL_INTERVAL_SECONDS = 2

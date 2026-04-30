@@ -1,17 +1,17 @@
-# agent-id-sdk
+# agent-id-client-sdk
 
 AgentID Client SDK — agent-side library for AI agents to authenticate with identity providers and hubs.
 
 ## Installation
 
 ```
-pip install agent-id-sdk
+pip install agent-id-client-sdk
 ```
 
 ## Quick Start
 
 ```python
-from agent_id_sdk import AIPIdentity, AIPClient
+from agent_id_client_sdk import AIPIdentity, AIPClient
 
 # Load agent identity from disk
 identity = AIPIdentity.from_profile("my-agent")

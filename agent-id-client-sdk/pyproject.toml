@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-id-sdk"
+name = "agent-id-client-sdk"
 version = "0.1.0"
 description = "AgentID — Client SDK for AI agents"
 license = "Apache-2.0"

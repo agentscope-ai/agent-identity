@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
 )
 
-from agent_id_sdk.identity import AIPIdentity
+from agent_id_client_sdk.identity import AIPIdentity
 
 
 def _make_agent_dir(tmp: Path) -> tuple[Path, Ed25519PrivateKey]:

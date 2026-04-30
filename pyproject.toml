@@ -20,7 +20,7 @@ extraPaths = [
     "aip-identity-sdk",
     "aip-identity-verify",
     "aip-identity-cli",
-    "agent-id-sdk",
+    "agent-id-client-sdk",
     "agent-id-service-sdk",
     "agent-id-cli",
 ]

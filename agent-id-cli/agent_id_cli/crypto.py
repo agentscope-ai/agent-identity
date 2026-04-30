@@ -1,9 +1,9 @@
-"""Re-exports from agent_id_sdk.manage for backwards compatibility."""
+"""Re-exports from agent_id_client_sdk.manage for backwards compatibility."""
 
 import os
 from pathlib import Path
 
-from agent_id_sdk.manage import (  # noqa: F401
+from agent_id_client_sdk.manage import (  # noqa: F401
     compute_kid,
     generate_keypair,
     load_private_key,

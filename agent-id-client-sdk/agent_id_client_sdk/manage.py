@@ -5,7 +5,7 @@ This module provides the core logic that both `aip-cli` and platform CLIs
 
 Typical usage:
 
-    from agent_id_sdk.manage import (
+    from agent_id_client_sdk.manage import (
         generate_keypair, compute_kid,
         register_agent, device_flow_init, device_flow_poll,
     )
