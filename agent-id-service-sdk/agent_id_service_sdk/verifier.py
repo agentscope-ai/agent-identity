@@ -115,7 +115,9 @@ class AIPVerifier:
                 (e.g. after key rotation).
 
         Discovery flow:
-        1. GET https://{provider_domain}/.well-known/aip-configuration
+        1. GET https://{provider_domain}/.well-known/agentid-configuration
+           (falls back to /.well-known/aip-configuration during the rename
+           soft-migration window — Phase 4 of the AgentID rebrand).
         2. Extract ``jwks_uri`` from the response.
         3. GET {jwks_uri} and parse the JWKS key set.
         """
@@ -133,8 +135,13 @@ class AIPVerifier:
             )
 
             # Step 1: discover JWKS URI (and activity_endpoint while we're here).
-            config_url = f"{base}/.well-known/aip-configuration"
+            # Prefer the AgentID-named endpoint; fall back to the legacy AIP one
+            # for IdPs that haven't migrated yet.
+            config_url = f"{base}/.well-known/agentid-configuration"
             config_resp = await client.get(config_url)
+            if config_resp.status_code == 404:
+                config_url = f"{base}/.well-known/aip-configuration"
+                config_resp = await client.get(config_url)
             config_resp.raise_for_status()
             config_data = config_resp.json()
             jwks_uri = config_data["jwks_uri"]
@@ -183,10 +190,15 @@ class AIPVerifier:
         authorization_header: str,
         request_context: dict[str, Any] | None = None,
     ) -> AIPAgent:
-        """Verify an ``Authorization: AIP <token>`` header and return an `AIPAgent`.
+        """Verify an ``Authorization: Bearer <token>`` (or legacy
+        ``Authorization: AIP <token>``) header and return an `AIPAgent`.
 
         Convenience wrapper for HTTP handlers. For non-HTTP transports
         (WebSocket, gRPC, MCP), use :meth:`verify_token` directly.
+
+        Both ``Bearer`` (the OAuth 2.0 standard, AgentID's long-term form)
+        and ``AIP`` (the legacy custom scheme) are accepted during the
+        rename soft-migration window. Phase 9 will drop ``AIP``.
 
         `request_context` is an optional dict carrying `route` and other
         per-request context. Only used when `report_auto_verify=True`.
@@ -197,12 +209,19 @@ class AIPVerifier:
             AIPTokenExpired: token has expired.
             AIPSignatureInvalid: signature verification failed.
         """
-        if not authorization_header or not authorization_header.startswith("AIP "):
-            raise AIPTokenInvalid("Authorization header must start with 'AIP '")
+        if not authorization_header:
+            raise AIPTokenInvalid("Authorization header is required")
 
-        return await self.verify_token(
-            authorization_header[4:], request_context=request_context
-        )
+        if authorization_header.startswith("Bearer "):
+            token = authorization_header[7:]
+        elif authorization_header.startswith("AIP "):
+            token = authorization_header[4:]
+        else:
+            raise AIPTokenInvalid(
+                "Authorization header must start with 'Bearer ' or 'AIP '"
+            )
+
+        return await self.verify_token(token, request_context=request_context)
 
     async def verify_token(
         self,

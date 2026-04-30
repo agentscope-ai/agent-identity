@@ -64,8 +64,34 @@ async def test_missing_authorization_header():
 @pytest.mark.asyncio
 async def test_malformed_authorization_header():
     verifier = AIPVerifier(trusted_providers=[PROVIDER_DOMAIN], audience=AUDIENCE)
-    with pytest.raises(AIPTokenInvalid):
-        await verifier.verify("Bearer some-token")
+    # Neither AIP nor Bearer prefix → rejected up-front
+    with pytest.raises(AIPTokenInvalid, match="Bearer.*AIP"):
+        await verifier.verify("Foo some-token")
+
+
+@pytest.mark.asyncio
+async def test_bearer_scheme_accepted():
+    """Phase 4 dual-accept: Bearer scheme works the same as legacy AIP."""
+    private_key, public_key = _make_keypair()
+    verifier = _build_verifier(public_key)
+
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "agent-001",
+            "agent_name": "BearerAgent",
+            "iss": f"https://{PROVIDER_DOMAIN}",
+            "aud": AUDIENCE,
+            "exp": int(time.time()) + 3600,
+            "principal": {"type": "user", "id": "user-1"},
+            "capabilities": [],
+            "scopes": {},
+        },
+    )
+
+    agent = await verifier.verify(f"Bearer {token}")
+    assert agent.agent_id == "agent-001"
+    assert agent.agent_name == "BearerAgent"
 
 
 @pytest.mark.asyncio
