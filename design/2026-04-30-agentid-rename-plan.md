@@ -102,9 +102,13 @@ After Phase 1 framing is approved:
 
 ---
 
-### Phase 4 — Wire-protocol dual-emit (additive, backwards-compatible) (1 week)
+### Phase 4 — Wire-protocol hard cutover (1 week)
 
-The crucial soft-migration window. **Receivers accept both; emitters keep emitting old.**
+**Decision (2026-04-30):** no external integrators rely on the legacy
+`/aip/*` wire format; rollout of IdP and clients is co-deployed and
+under our control. So Phase 4 is a hard cutover, not a dual-emit window.
+Every emitter and receiver flips to the new names in one coordinated
+deployment.
 
 #### Wire-format rename mapping
 
@@ -113,41 +117,58 @@ The crucial soft-migration window. **Receivers accept both; emitters keep emitti
 | JWT claim | `aip_version` | `agentid_version` |
 | HTTP header | `X-AIP-Token` | `X-AgentID-Token` |
 | HTTP header | `X-AIP-Grant` | `X-AgentID-Grant` |
-| HTTP auth scheme | `Authorization: AIP <token>` | `Authorization: Bearer <token>` (OAuth 2.0 standard — AgentID is an OIDC profile, so Bearer is the parent-spec scheme) |
+| HTTP auth scheme | `Authorization: AIP <token>` | `Authorization: Bearer <token>` (OAuth 2.0 standard) |
 | URL path | `/aip/auth/register` | `/agentid/auth/register` |
 | URL path | `/aip/agents` | `/agentid/agents` |
 | URL path | `/aip/token` | `/agentid/token` |
 | URL path | `/aip/activity` | `/agentid/activity` |
 | URL path | `/aip/services` | `/agentid/services` |
 | URL path | `/aip/approvals` | `/agentid/approvals` |
-| Discovery | `.well-known/aip-configuration` | `.well-known/agentid-configuration` (mirrors OIDC's `openid-configuration` precedent) |
+| Discovery | `.well-known/aip-configuration` | `.well-known/agentid-configuration` |
 | Discovery | `.well-known/aip-jwks` | `.well-known/agentid-jwks` |
 
 #### Implementation pattern
 
-- **JWT claim**: tokens carry both `aip_version` AND `agentid_version` with the same value. All verifiers (`aip-identity-verify`, `agent-id-service-sdk`, `ref-idp`, `aip-activity`, `demo-hub`) accept either.
-- **HTTP headers**: receivers accept either `X-AIP-*` OR `X-AgentID-*`. Emitters keep emitting old; new emitters emit new.
-- **HTTP auth scheme**: receivers accept either `Authorization: AIP <token>` OR `Authorization: Bearer <token>`. Note: Bearer is the long-term form; existing `AIP` callers continue to work through the soft-migration window.
-- **HTTP routes**: `aip-idp` and `aip-activity` mount routes at both `/aip/...` AND `/agentid/...` paths. `ref-idp` matches.
-- **Discovery**: IdPs serve both `.well-known/aip-configuration` and `.well-known/agentid-configuration` (with identical content); same for JWKS endpoints.
+- **JWT claim**: emit only `agentid_version`. Drop `aip_version`.
+- **HTTP headers**: accept only `X-AgentID-*`. Drop `X-AIP-*`.
+- **HTTP auth scheme**: accept only `Bearer`. Drop the custom `AIP` scheme.
+- **HTTP routes**: mount only `/agentid/*`. Drop `/aip/*`.
+- **Discovery**: serve only `.well-known/agentid-configuration` and
+  `.well-known/agentid-jwks`. Drop the legacy paths.
 
-This is the most diff-heavy phase but each change is small and additive.
+#### Cliff for old PyPI users
 
-**Files touched:** `aip-idp/app/core/aip_jwt.py` and route modules, `aip-activity/app/auth.py` + routes, `agent-identity/aip-identity-verify`, `agent-identity/ref-idp/ref_idp/{routes,crypto/jwt.py}`, `agent-identity/examples/demo-hub`.
+Anyone pinned to `aip-identity-sdk@0.1.7` (or earlier) will hit 404s
+when calling the upgraded IdP. The Phase 7 bridge release of the old
+package re-exports from `agent-id-sdk` so `pip install aip-identity-sdk`
+keeps working transparently — but pre-bridge versions are dead. Since
+only a couple of internal projects use the old packages and we control
+their deployment, this is acceptable.
 
-**Done when:** every receiver accepts both, contract tests pass for both old and new wire formats.
+**Files touched:** `aip-idp/app/core/aip_jwt.py` and route modules,
+`aip-activity/app/auth.py` + routes, `agent-identity/agent-id-service-sdk`,
+`agent-identity/ref-idp/ref_idp/{routes,crypto/jwt.py}`,
+`agent-identity/examples/demo-hub`. Old `aip-identity-verify` is left
+frozen — it becomes a bridge stub in Phase 7.
+
+**Done when:** all clients and servers speak `/agentid/*` /
+`X-AgentID-*` / `Bearer` / `agentid_version` exclusively, and nothing
+emits or accepts the legacy names.
 
 ---
 
-### Phase 5 — Switch emitters & external-facing clients to new names (1 week)
+### Phase 5 — Switch internal callers to new package names (1 week)
 
-- New PyPI packages (`agent-id-sdk`, `agent-id-service-sdk`) emit only new headers/claims by default; expose a `compat_legacy=True` flag to also emit old.
-- `demo-agent`, `demo-hub`, `ref-idp` updated to use `agent-id-sdk`/`agent-id-service-sdk` imports.
+With Phase 4 hard-cutover, emitter/receiver wire-format dual-emit is
+moot. Phase 5 narrows to package-import migration:
+
+- `demo-agent`, `demo-hub`, `ref-idp` updated to use `agent-id-sdk` /
+  `agent-id-service-sdk` imports.
 - `aip-activity` updates dep from `aip-identity-verify` to `agent-id-service-sdk`.
-- `aip-idp`'s IdP starts emitting `agentid_version` as primary claim, keeps `aip_version` for back-compat.
 - Frontend portal: text-replace `AIP` → `AgentID` in user-visible strings.
 
-**Done when:** all internal callers use new names; old PyPI packages still work but no longer used internally.
+**Done when:** all internal code imports the new package names; the old
+`aip-identity-*` packages still build but no internal caller pulls them.
 
 ---
 
@@ -203,13 +224,15 @@ from agent_id_sdk import *  # noqa: F401,F403
 
 ### Phase 9 — Soak + final cleanup (T+3 months from Phase 7)
 
-- Yank old PyPI versions (yank is reversible — pinned deps still resolve, unpinned `pip install` skips them).
-- Drop dual-emit code: emitters only emit new claims/headers, receivers only accept new.
-- Drop `/aip/...` route handlers from `aip-idp` and `aip-activity`.
-- Drop `aip_version` claim from issued tokens.
-- Final commits: clean repos, no AIP references except in changelog.
+With Phase 4 having been a hard cutover, there's no dual-emit code to
+strip. Phase 9 narrows to PyPI yank + final paint:
 
-**Done when:** `grep -r "aip" --include='*.py'` returns only changelog/history hits.
+- Yank old PyPI versions (yank is reversible — pinned deps still resolve,
+  unpinned `pip install` skips them).
+- Final commits: clean repos, no `AIP` references except in changelog.
+
+**Done when:** `grep -r "aip" --include='*.py'` returns only changelog /
+history hits.
 
 ---
 
@@ -219,7 +242,7 @@ from agent_id_sdk import *  # noqa: F401,F403
 |---|---|
 | External integrator pinned to `aip-identity-sdk` and missed deprecation | Bridge release re-exports work; warning printed; PyPI README screams. |
 | Live preprod breaks during DB rename | Phase 6 runs in scheduled maintenance window; Alembic downgrade tested before upgrade. |
-| Wire format mismatch between old and new tokens | Phase 4's dual-accept window means clients on either side keep working through the entire migration; only Phase 9 forces strict mode. |
+| Old PyPI users (pinned to aip-identity-* < bridge release) hit 404s | Accepted — only a couple of internal projects use these and we coordinate their rollout. Phase 7 bridge release covers everyone who upgrades. |
 | Spec terminology drifts between EN and ZH | Phase 3 translates ZH only after EN is final; do not maintain in parallel. |
 | Memory of "AIP" in old logs / SLS topics | Accept it. Historical data stays under old topic names; new data goes new topic. Don't migrate. |
 | `agent-id-sdk` PyPI name squatted before we publish | Verified clear 2026-04-30; reserve immediately at start of Phase 2 (publish a v0.0.0 placeholder if needed). |

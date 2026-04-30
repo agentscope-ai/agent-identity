@@ -6,7 +6,7 @@ Usage:
   python approve.py approve <approval_id> [--max-amount N]
   python approve.py deny <approval_id> "reason"
 
-For the demo the /aip/grants endpoints are unauthenticated. A real hub would
+For the demo the /agentid/grants endpoints are unauthenticated. A real hub would
 gate these behind a portal session tied to the principal.
 """
 
@@ -24,7 +24,7 @@ def cmd_list(args):
         params["status"] = args.status
     if args.principal:
         params["principal_id"] = args.principal
-    resp = httpx.get(f"{HUB_URL}/aip/grants", params=params)
+    resp = httpx.get(f"{HUB_URL}/agentid/grants", params=params)
     resp.raise_for_status()
     items = resp.json()["approvals"]
     if not items:
@@ -43,7 +43,7 @@ def cmd_approve(args):
     body = {}
     if args.max_amount is not None:
         body["max_amount"] = args.max_amount
-    resp = httpx.post(f"{HUB_URL}/aip/grants/{args.approval_id}/approve", json=body)
+    resp = httpx.post(f"{HUB_URL}/agentid/grants/{args.approval_id}/approve", json=body)
     if resp.status_code != 200:
         print(f"error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -54,7 +54,7 @@ def cmd_approve(args):
 
 def cmd_deny(args):
     resp = httpx.post(
-        f"{HUB_URL}/aip/grants/{args.approval_id}/deny",
+        f"{HUB_URL}/agentid/grants/{args.approval_id}/deny",
         json={"reason": args.reason},
     )
     if resp.status_code != 200:

@@ -60,7 +60,7 @@ async def test_full_flow(client):
 
     # --- Step 1: Register a principal ---
     resp = await client.post(
-        "/aip/auth/register",
+        "/agentid/auth/register",
         json={
             "type": "human",
             "name": "Alice",
@@ -83,7 +83,7 @@ async def test_full_flow(client):
     agent_public_hex = agent_public_bytes.hex()
 
     resp = await client.post(
-        "/aip/agents",
+        "/agentid/agents",
         json={
             "name": "alice-assistant",
             "public_key": agent_public_hex,
@@ -99,7 +99,7 @@ async def test_full_flow(client):
     assert kid == compute_kid(agent_public_bytes)
 
     # --- Step 2b: Verify agent lookup works ---
-    resp = await client.get(f"/aip/agents/{agent_id}")
+    resp = await client.get(f"/agentid/agents/{agent_id}")
     assert resp.status_code == 200, resp.text
     info = resp.json()
     assert info["name"] == "alice-assistant"
@@ -115,7 +115,7 @@ async def test_full_flow(client):
     signature_hex = signature.hex()
 
     resp = await client.post(
-        "/aip/token",
+        "/agentid/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
@@ -136,7 +136,7 @@ async def test_full_flow(client):
     assert claims["iss"] == "https://test.aip.example"
     assert claims["sub"] == agent_id
     assert claims["aud"] == audience
-    assert claims["aip_version"] == "0.1"
+    assert claims["agentid_version"] == "0.1"
     assert claims["agent_name"] == "alice-assistant"
     assert claims["principal"]["type"] == "human"
     assert claims["principal"]["name"] == "Alice"
@@ -149,7 +149,7 @@ async def test_invalid_signature_rejected(client):
 
     # Register principal
     resp = await client.post(
-        "/aip/auth/register",
+        "/agentid/auth/register",
         json={
             "type": "human",
             "name": "Bob",
@@ -168,7 +168,7 @@ async def test_invalid_signature_rejected(client):
     )
 
     resp = await client.post(
-        "/aip/agents",
+        "/agentid/agents",
         json={
             "name": "bob-agent",
             "public_key": agent_public_bytes.hex(),
@@ -188,7 +188,7 @@ async def test_invalid_signature_rejected(client):
     bad_signature = wrong_key.sign(message.encode("utf-8")).hex()
 
     resp = await client.post(
-        "/aip/token",
+        "/agentid/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
@@ -206,7 +206,7 @@ async def test_key_revocation(client):
 
     # Register principal + agent
     resp = await client.post(
-        "/aip/auth/register",
+        "/agentid/auth/register",
         json={
             "type": "org",
             "name": "Acme Corp",
@@ -224,7 +224,7 @@ async def test_key_revocation(client):
     )
 
     resp = await client.post(
-        "/aip/agents",
+        "/agentid/agents",
         json={
             "name": "acme-bot",
             "public_key": agent_public_bytes.hex(),
@@ -238,7 +238,7 @@ async def test_key_revocation(client):
 
     # Revoke the key
     resp = await client.delete(
-        f"/aip/agents/{agent_id}/keys/{kid}",
+        f"/agentid/agents/{agent_id}/keys/{kid}",
         headers={"Authorization": f"Bearer {mgmt_token}"},
     )
     assert resp.status_code == 200
@@ -251,7 +251,7 @@ async def test_key_revocation(client):
     signature = agent_private_key.sign(message.encode("utf-8")).hex()
 
     resp = await client.post(
-        "/aip/token",
+        "/agentid/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
@@ -267,14 +267,14 @@ async def test_key_revocation(client):
 async def test_discovery_endpoints(client):
     """Well-known endpoints should return proper configuration."""
 
-    resp = await client.get("/.well-known/aip-configuration")
+    resp = await client.get("/.well-known/agentid-configuration")
     assert resp.status_code == 200
     config = resp.json()
     assert config["issuer"] == "https://test.aip.example"
-    assert config["aip_version"] == "0.1"
+    assert config["agentid_version"] == "0.1"
     assert "EdDSA" in config["supported_algorithms"]
 
-    resp = await client.get("/.well-known/aip-jwks")
+    resp = await client.get("/.well-known/agentid-jwks")
     assert resp.status_code == 200
     jwks = resp.json()
     assert len(jwks["keys"]) == 1
@@ -340,7 +340,7 @@ async def test_device_flow(client):
         patch("ref_idp.routes.auth._github_get", side_effect=mock_gh_get),
     ):
         # Step 1: Start device flow
-        resp = await client.post("/aip/auth/device")
+        resp = await client.post("/agentid/auth/device")
         assert resp.status_code == 200
         data = resp.json()
         assert data["user_code"] == "ABCD-1234"
@@ -349,7 +349,7 @@ async def test_device_flow(client):
 
         # Step 2: First poll — authorization pending
         resp = await client.post(
-            "/aip/auth/device/token",
+            "/agentid/auth/device/token",
             json={"device_code": device_code},
         )
         assert resp.status_code == 200
@@ -357,7 +357,7 @@ async def test_device_flow(client):
 
         # Step 3: Second poll — user authorized, get principal
         resp = await client.post(
-            "/aip/auth/device/token",
+            "/agentid/auth/device/token",
             json={"device_code": device_code},
         )
         assert resp.status_code == 200
@@ -370,7 +370,7 @@ async def test_device_flow(client):
 
     # Verify the principal was persisted by logging in via direct endpoint
     resp = await client.post(
-        "/aip/auth/login",
+        "/agentid/auth/login",
         json={"external_id": "github:deviceflow_alice"},
     )
     assert resp.status_code == 200
@@ -386,7 +386,7 @@ async def test_device_flow_existing_principal(client):
 
     # Pre-register the principal via direct endpoint
     resp = await client.post(
-        "/aip/auth/register",
+        "/agentid/auth/register",
         json={
             "type": "human",
             "name": "Bob (original)",
@@ -435,12 +435,12 @@ async def test_device_flow_existing_principal(client):
         patch("ref_idp.routes.auth._github_post", side_effect=mock_gh_post),
         patch("ref_idp.routes.auth._github_get", side_effect=mock_gh_get),
     ):
-        resp = await client.post("/aip/auth/device")
+        resp = await client.post("/agentid/auth/device")
         assert resp.status_code == 200
         device_code = resp.json()["device_code"]
 
         resp = await client.post(
-            "/aip/auth/device/token",
+            "/agentid/auth/device/token",
             json={"device_code": device_code},
         )
         assert resp.status_code == 200
@@ -456,7 +456,7 @@ async def test_device_flow_not_configured(client):
 
     settings.github_client_id = ""
 
-    resp = await client.post("/aip/auth/device")
+    resp = await client.post("/agentid/auth/device")
     assert resp.status_code == 501
 
 
@@ -475,7 +475,7 @@ async def test_web_oauth_flow(client):
 
     # Step 1: Start the flow — get the GitHub authorize URL
     resp = await client.post(
-        "/aip/auth/login/github",
+        "/agentid/auth/login/github",
         json={"redirect_uri": "https://portal.example.com/auth/done"},
     )
     assert resp.status_code == 200
@@ -516,7 +516,7 @@ async def test_web_oauth_flow(client):
         patch("ref_idp.routes.auth._github_get", side_effect=mock_gh_get),
     ):
         resp = await client.get(
-            f"/aip/auth/callback/github?code=test_authz_code&state={state}",
+            f"/agentid/auth/callback/github?code=test_authz_code&state={state}",
             follow_redirects=False,
         )
         assert resp.status_code == 302
@@ -531,7 +531,7 @@ async def test_web_oauth_flow(client):
 
     # Verify the principal was persisted
     resp = await client.post(
-        "/aip/auth/login",
+        "/agentid/auth/login",
         json={"external_id": "github:web_carol"},
     )
     assert resp.status_code == 200
@@ -545,6 +545,6 @@ async def test_web_oauth_invalid_state(client):
     settings.github_client_id = "test_client_id"
 
     resp = await client.get(
-        "/aip/auth/callback/github?code=test_code&state=bogus_state",
+        "/agentid/auth/callback/github?code=test_code&state=bogus_state",
     )
     assert resp.status_code == 400

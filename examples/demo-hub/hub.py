@@ -9,12 +9,12 @@ action endpoints to show different approval triggers:
 Two approval modes are supported, auto-detected from the IdP's discovery doc:
 
 - **Local (Model 1)** — hub holds approval state; `approve.py` hits the
-  hub's /aip/grants endpoints directly.
+  hub's /agentid/grants endpoints directly.
 - **IdP-delegated (Model 3)** — IdP advertises `approval_endpoint`;
   hub forwards the decision, IdP portal surfaces + signs it, hub verifies
   the JWT against JWKS and materializes a local grant.
 
-Agents see the same 202 + poll + X-AIP-Grant retry protocol in both modes.
+Agents see the same 202 + poll + X-AgentID-Grant retry protocol in both modes.
 
 Start: uvicorn hub:app --port 8001
 The IdP target is selected by AIP_IDP (default: "local"); see IDP_PROFILES
@@ -187,7 +187,7 @@ async def _discover_idp_approval_endpoint() -> str | None:
     _idp_discovery_checked = True
     advertised = None
     try:
-        resp = await _client().get(f"{IDP_BASE_URL}/.well-known/aip-configuration")
+        resp = await _client().get(f"{IDP_BASE_URL}/.well-known/agentid-configuration")
         resp.raise_for_status()
         advertised = resp.json().get("approval_endpoint")
     except Exception as e:
@@ -195,7 +195,7 @@ async def _discover_idp_approval_endpoint() -> str | None:
     if advertised:
         from urllib.parse import urlparse
 
-        path = urlparse(advertised).path or "/aip/approvals"
+        path = urlparse(advertised).path or "/agentid/approvals"
         _idp_approval_endpoint = f"{IDP_BASE_URL.rstrip('/')}{path}"
     mode = "delegated (Model 3)" if _idp_approval_endpoint else "local (Model 1)"
     print(f"[discovery] approval mode: {mode}")
@@ -356,7 +356,7 @@ def _notify_principal(approval: ApprovalRequest, principal_claim: dict) -> None:
     print(
         f"\n[notify → {target}] "
         f"{approval.action} — {approval.details} "
-        f"(approve: {HUB_URL}/aip/grants/{approval.approval_id}/approve)\n"
+        f"(approve: {HUB_URL}/agentid/grants/{approval.approval_id}/approve)\n"
     )
 
 
@@ -412,7 +412,7 @@ def _approval_response(
         "resource": approval.resource,
         "action": approval.action,
         "details": approval.details,
-        "poll_url": f"/aip/grants/{approval.approval_id}",
+        "poll_url": f"/agentid/grants/{approval.approval_id}",
         "expires_at": _iso(approval.expires_at),
         "approval_via": "idp" if approval.delegated else "hub",
     }
@@ -643,7 +643,7 @@ def _serialize_grant(grant: Grant) -> dict:
     }
 
 
-@app.get("/aip/grants/{approval_id}")
+@app.get("/agentid/grants/{approval_id}")
 async def poll_grant(approval_id: str, request: Request):
     agent = await get_agent(request)
     approval = approvals.get(approval_id)
@@ -685,7 +685,7 @@ class ApproveRequest(BaseModel):
     max_amount: float | None = None
 
 
-@app.post("/aip/grants/{approval_id}/approve")
+@app.post("/agentid/grants/{approval_id}/approve")
 async def approve(approval_id: str, body: ApproveRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -739,7 +739,7 @@ class DenyRequest(BaseModel):
     reason: str = "Denied by principal"
 
 
-@app.post("/aip/grants/{approval_id}/deny")
+@app.post("/agentid/grants/{approval_id}/deny")
 async def deny(approval_id: str, body: DenyRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -759,7 +759,7 @@ async def deny(approval_id: str, body: DenyRequest | None = None):
     return {"approval_id": approval_id, "status": "denied", "reason": body.reason}
 
 
-@app.get("/aip/grants")
+@app.get("/agentid/grants")
 async def list_grants(principal_id: str | None = None, status: str | None = None):
     items = []
     for approval in approvals.values():
@@ -801,11 +801,11 @@ async def whoami(request: Request):
     }
 
 
-@app.get("/.well-known/aip-hub")
+@app.get("/.well-known/agentid-hub")
 async def hub_discovery():
     return {
         "service_id": HUB_URL,
         "trusted_providers": [IDP_PROVIDER],
         "local_mode": False,
-        "aip_version": "1.0",
+        "agentid_version": "1.0",
     }

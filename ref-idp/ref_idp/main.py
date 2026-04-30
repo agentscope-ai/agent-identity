@@ -22,15 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers. Discovery serves both .well-known/agentid-* and
-# .well-known/aip-* internally. The other routers are mounted twice —
-# once under /agentid (canonical) and once under /aip (legacy) — for the
-# rename soft-migration window. Phase 9 drops the /aip mount.
+# Include routers — single mount under /agentid.
 app.include_router(discovery.router)
-for prefix in ("/agentid", "/aip"):
-    app.include_router(auth.router, prefix=prefix)
-    app.include_router(agents.router, prefix=prefix)
-    app.include_router(token.router, prefix=prefix)
+app.include_router(auth.router, prefix="/agentid")
+app.include_router(agents.router, prefix="/agentid")
+app.include_router(token.router, prefix="/agentid")
 
 
 @app.on_event("startup")
