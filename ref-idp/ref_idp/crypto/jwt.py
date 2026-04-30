@@ -39,6 +39,8 @@ def create_agent_token(
         "aud": audience,
         "iat": now,
         "exp": now + ttl_seconds,
+        # Phase 4 dual-emit: include both names. Phase 9 drops aip_version.
+        "agentid_version": "0.1",
         "aip_version": "0.1",
         "agent_name": agent_name,
         "principal": principal,

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from ref_idp.crypto.keys import compute_kid
 from ref_idp.models.database import Agent, AgentKey, Principal, async_session
 
-router = APIRouter(prefix="/aip/agents")
+router = APIRouter(prefix="/agents")
 
 
 class RegisterAgentRequest(BaseModel):

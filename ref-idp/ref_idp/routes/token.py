@@ -10,7 +10,7 @@ from ref_idp.crypto.jwt import create_agent_token
 from ref_idp.crypto.keys import verify_signature
 from ref_idp.models.database import Agent, AgentKey, Principal, async_session
 
-router = APIRouter(prefix="/aip")
+router = APIRouter()
 
 # Maximum allowed clock skew for timestamp validation (seconds).
 TIMESTAMP_TOLERANCE = 5 * 60

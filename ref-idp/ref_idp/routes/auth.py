@@ -22,7 +22,7 @@ from sqlalchemy import select
 from ref_idp.config import settings
 from ref_idp.models.database import Principal, async_session
 
-router = APIRouter(prefix="/aip/auth")
+router = APIRouter(prefix="/auth")
 
 # ---------------------------------------------------------------------------
 # In-memory stores for pending OAuth flows
