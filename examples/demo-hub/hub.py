@@ -36,7 +36,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from aip_identity_verify import AIPVerifier
+from agent_id_service_sdk import AIPVerifier
 
 # Module-level HTTP client so all hub→IdP calls share one connection pool.
 # Created in the lifespan below and closed on shutdown.
