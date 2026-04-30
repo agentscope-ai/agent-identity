@@ -106,15 +106,36 @@ After Phase 1 framing is approved:
 
 The crucial soft-migration window. **Receivers accept both; emitters keep emitting old.**
 
+#### Wire-format rename mapping
+
+| Surface | Old | New |
+|---|---|---|
+| JWT claim | `aip_version` | `agentid_version` |
+| HTTP header | `X-AIP-Token` | `X-AgentID-Token` |
+| HTTP header | `X-AIP-Grant` | `X-AgentID-Grant` |
+| HTTP auth scheme | `Authorization: AIP <token>` | `Authorization: Bearer <token>` (OAuth 2.0 standard — AgentID is an OIDC profile, so Bearer is the parent-spec scheme) |
+| URL path | `/aip/auth/register` | `/agentid/auth/register` |
+| URL path | `/aip/agents` | `/agentid/agents` |
+| URL path | `/aip/token` | `/agentid/token` |
+| URL path | `/aip/activity` | `/agentid/activity` |
+| URL path | `/aip/services` | `/agentid/services` |
+| URL path | `/aip/approvals` | `/agentid/approvals` |
+| Discovery | `.well-known/aip-configuration` | `.well-known/agentid-configuration` (mirrors OIDC's `openid-configuration` precedent) |
+| Discovery | `.well-known/aip-jwks` | `.well-known/agentid-jwks` |
+
+#### Implementation pattern
+
 - **JWT claim**: tokens carry both `aip_version` AND `agentid_version` with the same value. All verifiers (`aip-identity-verify`, `agent-id-service-sdk`, `ref-idp`, `aip-activity`, `demo-hub`) accept either.
-- **HTTP headers**: receivers accept either `X-AIP-Token` / `X-AIP-Grant` OR `X-AgentID-Token` / `X-AgentID-Grant`. Emitters keep emitting old; new emitters emit new.
+- **HTTP headers**: receivers accept either `X-AIP-*` OR `X-AgentID-*`. Emitters keep emitting old; new emitters emit new.
+- **HTTP auth scheme**: receivers accept either `Authorization: AIP <token>` OR `Authorization: Bearer <token>`. Note: Bearer is the long-term form; existing `AIP` callers continue to work through the soft-migration window.
 - **HTTP routes**: `aip-idp` and `aip-activity` mount routes at both `/aip/...` AND `/agentid/...` paths. `ref-idp` matches.
+- **Discovery**: IdPs serve both `.well-known/aip-configuration` and `.well-known/agentid-configuration` (with identical content); same for JWKS endpoints.
 
 This is the most diff-heavy phase but each change is small and additive.
 
 **Files touched:** `aip-idp/app/core/aip_jwt.py` and route modules, `aip-activity/app/auth.py` + routes, `agent-identity/aip-identity-verify`, `agent-identity/ref-idp/ref_idp/{routes,crypto/jwt.py}`, `agent-identity/examples/demo-hub`.
 
-**Done when:** every receiver accepts both, contract tests pass for both old and new.
+**Done when:** every receiver accepts both, contract tests pass for both old and new wire formats.
 
 ---
 

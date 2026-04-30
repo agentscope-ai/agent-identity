@@ -1,8 +1,8 @@
-# Agent Identity Protocol (AIP)
+# AgentID
 
 **给 AI Agent 一张全网通用的身份证。**
 
-AIP 是一个开放协议，为 AI Agent 提供跨平台的身份认证、活动追踪和信任体系。任何人都能实现——就像 OIDC 让"用 Google 登录"成为标准，AIP 要让 Agent 身份成为基础设施。
+AgentID 是 OIDC 的衍生身份框架，为 AI Agent 提供跨平台的身份认证、活动追踪和信任体系。任何人都能实现——就像 OIDC 让"用 Google 登录"成为标准，AgentID 要让 Agent 身份成为基础设施。
 
 ## 核心概念
 
@@ -22,7 +22,7 @@ AIP 是一个开放协议，为 AI Agent 提供跨平台的身份认证、活动
 ```mermaid
 sequenceDiagram
     participant Dev as 开发者
-    participant CLI as AIP CLI
+    participant CLI as AgentID CLI
     participant IdP as 身份提供商 (IdP)
     participant OAuth as OAuth 提供商<br/>(GitHub, 阿里云等)
 
@@ -40,7 +40,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Dev as 开发者
-    participant CLI as AIP CLI
+    participant CLI as AgentID CLI
     participant IdP as 身份提供商 (IdP)
 
     Dev->>CLI: aip agent create --name shark
@@ -134,8 +134,8 @@ make agent trade BTC/USD 1000 buy IDP=pre
 
 - [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/) — 微软的企业 Agent 身份方案。锁定 M365 生态，非开放标准。
 - [Ping Identity for AI](https://www.pingidentity.com/en/solution/agentic-ai-identity.html) — 基于 OAuth 2.0 Token Exchange，重治理和 MCP 集成，身份归平台所有。
-- [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) / [SPIFFE](https://spiffe.io/) — 工作负载身份标准，正在被拉伸用于 Agent 场景。AIP Layer 0 可插拔兼容。
-- [OAuth 2.0](https://oauth.net/2/) / [OIDC](https://openid.net/connect/) — AIP 借鉴了联邦身份认证的成熟模式，但为 Agent 做了原生设计。
+- [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) / [SPIFFE](https://spiffe.io/) — 工作负载身份标准，正在被拉伸用于 Agent 场景。AgentID Layer 0 可插拔兼容。
+- [OAuth 2.0](https://oauth.net/2/) / [OIDC](https://openid.net/connect/) — AgentID 借鉴了联邦身份认证的成熟模式，但为 Agent 做了原生设计。
 - [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/news-insights/new-concept-paper-identity-and-authority-software-agents) — NIST 关于 Agent 身份的概念文件。
 
 ## 状态

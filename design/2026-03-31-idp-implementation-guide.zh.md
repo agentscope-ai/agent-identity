@@ -1,14 +1,14 @@
-# AIP 身份提供方（IdP）实现指南
+# AgentID 身份提供方（IdP）实现指南
 
 **日期：** 2026-03-31
 **状态：** 草案
-**关联：** [AIP 协议规范](./2026-03-25-agent-identity-protocol.zh.md)
+**关联：** [AgentID 协议规范](./2026-03-25-agent-identity-protocol.zh.md)
 
 ---
 
 ## 1. 概述
 
-本文档为希望构建生产级 AIP 身份提供方（IdP）的团队提供实现指南。AIP 协议只定义了 RESTful 接口规范——语言、框架、数据库的选择完全由实现方决定。
+本文档为希望构建生产级 AgentID 身份提供方（IdP）的团队提供实现指南。AgentID 协议只定义了 RESTful 接口规范——语言、框架、数据库的选择完全由实现方决定。
 
 本文档覆盖：
 - 完整的 API 规范（请求/响应格式）
@@ -816,4 +816,4 @@ POST /aip/agents/{agent_id}/keys/batch
 - 审计与合规
 - 管理门户集成
 
-**不需要使用任何 AIP 库来构建 IdP。** IdP 只需要实现本文档定义的 RESTful 端点。`aip-sdk` 和 `aip-verify` 是给智能体端和服务方端用的，IdP 不依赖它们。
+**不需要使用任何 AgentID 库来构建 IdP。** IdP 只需要实现本文档定义的 RESTful 端点。`aip-sdk` 和 `aip-verify` 是给智能体端和服务方端用的，IdP 不依赖它们。

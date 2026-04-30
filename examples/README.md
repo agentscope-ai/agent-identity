@@ -1,4 +1,4 @@
-# AIP Reference Implementation — Demo
+# AgentID Reference Implementation — Demo
 
 ## Architecture
 

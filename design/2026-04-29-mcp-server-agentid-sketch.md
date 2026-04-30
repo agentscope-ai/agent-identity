@@ -1,20 +1,20 @@
-# MCP Server + AIP — design sketch
+# MCP Server + AgentID — design sketch
 
 Status: design sketch, not yet implemented. Captured here so the framing
 isn't lost; a runnable example under `examples/mcp-server-aip/` can be
 built from this when we're ready.
 
-The question this answers: *"how does our AIP fit in front of an MCP
+The question this answers: *"how does our AgentID fit in front of an MCP
 server?"* The four pieces an MCP operator actually has to think about:
 
-1. token transport (where does the AIP JWT ride in?)
+1. token transport (where does the AgentID JWT ride in?)
 2. per-tool scope check (which capability gate covers which tool?)
 3. sensitive-tool approval (when does the principal get pulled in?)
 4. activity reporting (`tool.use` events to aip-activity)
 
 The natural transport for a first cut is FastAPI + JSON-RPC framed the
 way MCP's streamable HTTP transport does it. Swapping in the official
-`mcp` Python SDK is a mechanical change — the AIP plumbing stays put;
+`mcp` Python SDK is a mechanical change — the AgentID plumbing stays put;
 see [Plugging into the real MCP SDK](#plugging-into-the-real-mcp-sdk).
 
 ---
@@ -28,13 +28,13 @@ the agent JWT on every request, reports `tool.use` after each call, and
 triggers the approval flow for sensitive tools.
 
 Best when: you control the MCP server and can ship a Python (or any
-language with an AIP verifier) dependency.
+language with an AgentID verifier) dependency.
 
 ### B — OAuth-aligned (MCP Authorization spec)
 
 MCP's official authorization profile uses `WWW-Authenticate` to point the
 client at an authorization server, then expects an OAuth bearer token on
-every request. With AIP this means: the IdP doubles as the AS, the agent
+every request. With AgentID this means: the IdP doubles as the AS, the agent
 token *is* the bearer, and the MCP server's resource-server check is
 `AIPVerifier.verify`. Almost identical wire shape to Pattern A; the
 difference is the discovery handshake.
@@ -44,9 +44,9 @@ hub-specific transport.
 
 ### C — Sidecar proxy
 
-For MCP servers you can't modify (vendor-supplied, legacy). Run an AIP
-proxy in front: it terminates AIP, adds whatever native auth the upstream
-expects, and forwards. This is the shape Mintlify's "AIP Proxy"
+For MCP servers you can't modify (vendor-supplied, legacy). Run an AgentID
+proxy in front: it terminates AgentID, adds whatever native auth the upstream
+expects, and forwards. This is the shape Mintlify's "AgentID Proxy"
 advocates and what Aembit's MCP Identity Gateway ships as a product.
 
 Best when: the upstream is closed-source.
@@ -59,7 +59,7 @@ inside a Pattern C proxy — only the downstream call changes.
 
 ## Token transport
 
-The agent puts the AIP JWT on the initial HTTP request that opens the
+The agent puts the AgentID JWT on the initial HTTP request that opens the
 MCP session:
 
 ```
@@ -76,12 +76,12 @@ identity for every subsequent request on the session. Re-validation
 happens on session reopen, not per call.
 
 For SSE transport the same `Authorization` header rides on the SSE
-`GET`. For stdio (local subprocess) MCP, AIP doesn't apply — the
+`GET`. For stdio (local subprocess) MCP, AgentID doesn't apply — the
 trust boundary is the OS user, not the network.
 
-Why `AIP` and not `Bearer`: `Bearer` collides with vanilla OAuth on the
+Why `AgentID` and not `Bearer`: `Bearer` collides with vanilla OAuth on the
 same endpoint. The MCP spec leaves the auth scheme open; using a distinct
-scheme name lets the same MCP server accept both vanilla OAuth and AIP
+scheme name lets the same MCP server accept both vanilla OAuth and AgentID
 without ambiguity. If you're going Pattern B (the MCP authorization
 profile), use `Bearer` and let the discovery doc disambiguate.
 
@@ -89,7 +89,7 @@ profile), use `Bearer` and let the discovery doc disambiguate.
 
 ## Scope → tool mapping
 
-AIP `capabilities` are the protocol-level grant. MCP `tools` are the
+AgentID `capabilities` are the protocol-level grant. MCP `tools` are the
 product-level handle. The MCP server owns the mapping:
 
 ```python
@@ -203,7 +203,7 @@ curl -X POST http://localhost:8003/mcp \
 curl -X POST http://localhost:8003/mcp \
   -H "Authorization: AIP $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"AIP"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_docs","arguments":{"query":"AgentID"}}}'
 ```
 
 The activity should appear under the agent on the portal's
@@ -213,7 +213,7 @@ The activity should appear under the agent on the portal's
 
 ## Plugging into the real MCP SDK
 
-Starting with FastAPI-on-JSON-RPC keeps the AIP integration legible
+Starting with FastAPI-on-JSON-RPC keeps the AgentID integration legible
 without a runtime dependency on `mcp`. To switch:
 
 ```python
