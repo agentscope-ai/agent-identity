@@ -25,7 +25,7 @@ KID = "test-key-1"
 
 def _make_agent() -> AIPAgent:
     return AIPAgent(
-        agent_id="aip:idp.example.com:agent_x",
+        agent_id="agentid:idp.example.com:agent_x",
         agent_name="bot",
         principal={"id": "p1", "name": "alice", "type": "human"},
         capabilities=[],
@@ -227,7 +227,7 @@ class TestReportEvent:
         mock_enq.assert_called_once()
         evt = mock_enq.call_args.args[0]
         assert evt.category == "model.call"
-        assert evt.agent_id == "aip:idp.example.com:agent_x"
+        assert evt.agent_id == "agentid:idp.example.com:agent_x"
         assert evt.audience == AUDIENCE
 
 

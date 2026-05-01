@@ -77,7 +77,7 @@ async def register_agent(body: RegisterAgentRequest, request: Request):
     app = request.app
     domain = app.state.idp_domain
     random_part = "agent_" + secrets.token_hex(4)
-    agent_id = f"aip:{domain}:{random_part}"
+    agent_id = f"agentid:{domain}:{random_part}"
     kid = compute_kid(pk_bytes)
 
     async with async_session() as session:

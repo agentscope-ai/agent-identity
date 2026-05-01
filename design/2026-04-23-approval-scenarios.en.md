@@ -50,7 +50,7 @@ Content-Type: application/json
 
 {
   "hub_id": "https://deploy-hub.acme.com",
-  "agent_id": "aip:acme.com:agent_deploy_bot_rita",
+  "agent_id": "agentid:acme.com:agent_deploy_bot_rita",
   "resource": "/api/deploy",
   "action": "deploy.execute",
   "details": {
@@ -77,7 +77,7 @@ Behind the scenes:
    ```json
    {
      "iss": "https://idp.acme.com",
-     "sub": "aip:acme.com:agent_deploy_bot_rita",
+     "sub": "agentid:acme.com:agent_deploy_bot_rita",
      "aud": "https://deploy-hub.acme.com",
      "type": "approval_decision",
      "approval_id": "apr_abc123",

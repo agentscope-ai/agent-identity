@@ -95,7 +95,7 @@ async def test_full_flow(client):
     agent_data = resp.json()
     agent_id = agent_data["agent_id"]
     kid = agent_data["kid"]
-    assert agent_id.startswith("aip:test.aip.example:agent_")
+    assert agent_id.startswith("agentid:test.aip.example:agent_")
     assert kid == compute_kid(agent_public_bytes)
 
     # --- Step 2b: Verify agent lookup works ---

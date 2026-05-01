@@ -231,7 +231,7 @@ graph TB
 **响应：**
 ```json
 {
-  "agent_id": "aip:identity.example.com:agent_7x8k2m",
+  "agent_id": "agentid:identity.example.com:agent_7x8k2m",
   "kid": "a1b2c3d4e5f6g7h8",
   "name": "shark",
   "created_at": "2026-03-31T10:00:00Z"
@@ -248,7 +248,7 @@ graph TB
 **响应：**
 ```json
 {
-  "agent_id": "aip:identity.example.com:agent_7x8k2m",
+  "agent_id": "agentid:identity.example.com:agent_7x8k2m",
   "name": "shark",
   "principal": {
     "type": "human",
@@ -277,7 +277,7 @@ graph TB
 {
   "agents": [
     {
-      "agent_id": "aip:identity.example.com:agent_7x8k2m",
+      "agent_id": "agentid:identity.example.com:agent_7x8k2m",
       "name": "shark",
       "status": "active",
       "key_count": 2,
@@ -295,7 +295,7 @@ graph TB
 **响应：**
 ```json
 {
-  "agent_id": "aip:identity.example.com:agent_7x8k2m",
+  "agent_id": "agentid:identity.example.com:agent_7x8k2m",
   "status": "revoked",
   "revoked_at": "2026-03-31T12:00:00Z"
 }
@@ -374,7 +374,7 @@ graph TB
 **请求：**
 ```json
 {
-  "agent_id": "aip:identity.example.com:agent_7x8k2m",
+  "agent_id": "agentid:identity.example.com:agent_7x8k2m",
   "kid": "a1b2c3d4e5f6g7h8",
   "audience": "https://hub.example.com",
   "timestamp": "2026-03-31T10:00:00Z",
@@ -482,7 +482,7 @@ erDiagram
     }
 
     AGENT {
-        string agent_id PK "aip:domain:id"
+        string agent_id PK "agentid:domain:id"
         string name
         string principal_id FK
         json metadata
@@ -781,7 +781,7 @@ POST /aip/agents/{agent_id}/keys/batch
     "external_id": "github:alice"
   },
   "target": {
-    "agent_id": "aip:identity.example.com:agent_7x8k2m",
+    "agent_id": "agentid:identity.example.com:agent_7x8k2m",
     "kid": "b2c3d4e5f6g7h8i9"
   },
   "ip": "203.0.113.42",

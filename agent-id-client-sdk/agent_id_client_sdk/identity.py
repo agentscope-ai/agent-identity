@@ -35,17 +35,17 @@ class AIPIdentity:
         """Derive IDP base URL from agent_id domain.
 
         Format is ``aip:<domain>:<name>`` where ``<domain>`` may itself contain
-        a port (e.g. ``aip:localhost:8000:agent_x``). We split off the first
+        a port (e.g. ``agentid:localhost:8000:agent_x``). We split off the first
         segment (``aip``) and the last (``<name>``); everything in between is
         the domain, preserving any embedded colons.
 
         Examples:
             aip:example.com:agent_x        -> https://example.com
             aip:localhost:agent_x          -> http://localhost
-            aip:localhost:8000:agent_x     -> http://localhost:8000
+            agentid:localhost:8000:agent_x     -> http://localhost:8000
         """
         parts = agent_id.split(":")
-        if len(parts) < 3 or parts[0] != "aip":
+        if len(parts) < 3 or parts[0] != "agentid":
             raise ValueError(f"Cannot derive IDP URL from agent_id: {agent_id}")
         domain = ":".join(parts[1:-1])
         is_localhost = domain == "localhost" or domain.startswith("localhost:")

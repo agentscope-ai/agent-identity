@@ -11,7 +11,7 @@ from agent_id_client_sdk.identity import AIPIdentity
 
 
 def _make_agent_config(
-    agent_id="aip:test:agent_001", kid="testkid123", idp_url="http://localhost:8000"
+    agent_id="agentid:test:agent_001", kid="testkid123", idp_url="http://localhost:8000"
 ):
     return {
         "agent_id": agent_id,

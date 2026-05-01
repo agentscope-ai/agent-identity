@@ -13,16 +13,16 @@ from agent_id_client_sdk.identity import AIPIdentity
 
 class TestIdpUrlFromAgentId:
     def test_https_for_normal_domain(self):
-        url = AIPIdentity._idp_url_from_agent_id("aip:example.com:agent_001")
+        url = AIPIdentity._idp_url_from_agent_id("agentid:example.com:agent_001")
         assert url == "https://example.com"
 
     def test_http_for_localhost(self):
-        url = AIPIdentity._idp_url_from_agent_id("aip:localhost:agent_001")
+        url = AIPIdentity._idp_url_from_agent_id("agentid:localhost:agent_001")
         assert url == "http://localhost"
 
     def test_localhost_in_agent_id_always_http(self):
         """Port is not part of agent_id domain — localhost always derives to http."""
-        url = AIPIdentity._idp_url_from_agent_id("aip:localhost:agent_001")
+        url = AIPIdentity._idp_url_from_agent_id("agentid:localhost:agent_001")
         assert url == "http://localhost"
 
     def test_invalid_agent_id_raises(self):
@@ -30,7 +30,7 @@ class TestIdpUrlFromAgentId:
             AIPIdentity._idp_url_from_agent_id("bad_id")
 
     def test_subdomain(self):
-        url = AIPIdentity._idp_url_from_agent_id("aip:idp.corp.example.com:agent_x")
+        url = AIPIdentity._idp_url_from_agent_id("agentid:idp.corp.example.com:agent_x")
         assert url == "https://idp.corp.example.com"
 
 
@@ -38,7 +38,7 @@ class TestIdpUrlOptional:
     def _make_identity(self, idp_url=None):
         pk = Ed25519PrivateKey.generate()
         return AIPIdentity(
-            agent_id="aip:myidp.example.com:agent_001",
+            agent_id="agentid:myidp.example.com:agent_001",
             kid="kid123",
             private_key_bytes=pk.private_bytes_raw(),
             idp_url=idp_url,
@@ -62,7 +62,7 @@ class TestFromZipPem:
             encryption_algorithm=serialization.NoEncryption(),
         )
         config = {
-            "agent_id": "aip:test.example.com:agent_pem",
+            "agent_id": "agentid:test.example.com:agent_pem",
             "kid": "pemkid",
             "name": "pem-agent",
             "principal_id": "p-001",
@@ -84,7 +84,7 @@ class TestFromZipPem:
     def test_from_zip_without_idp_url(self):
         pk = Ed25519PrivateKey.generate()
         config = {
-            "agent_id": "aip:derived.example.com:agent_no_url",
+            "agent_id": "agentid:derived.example.com:agent_no_url",
             "kid": "kid456",
             "name": "no-url-agent",
             "principal_id": "p-002",
@@ -107,7 +107,7 @@ class TestFromZipPem:
             encryption_algorithm=serialization.NoEncryption(),
         )
         config = {
-            "agent_id": "aip:test.example.com:agent_both",
+            "agent_id": "agentid:test.example.com:agent_both",
             "kid": "bothkid",
             "name": "both-agent",
             "principal_id": "p-003",

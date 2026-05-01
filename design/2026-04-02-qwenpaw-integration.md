@@ -141,7 +141,7 @@ Agent 跑在云服务器上，开发者在本地笔记本完成 OAuth：
 或通过环境变量（CI/CD）：
 
 ```bash
-AIP_AGENT_ID=aip:agent-registry.ai:agent_xxx
+AIP_AGENT_ID=agentid:agent-registry.ai:agent_xxx
 AIP_AGENT_KID=abc123
 AIP_PRIVATE_KEY=<hex>
 # AIP_IDP_URL 可选覆盖；默认从 agent_id 域名推导（https://{domain}）
@@ -149,7 +149,7 @@ AIP_PRIVATE_KEY=<hex>
 
 ## IdP 域名到 URL 的解析
 
-SDK 从 agent_id 中提取域名（如 `aip:agent-registry.ai:agent_x` → `agent-registry.ai`），然后解析为可达的 IdP URL。
+SDK 从 agent_id 中提取域名（如 `agentid:agent-registry.ai:agent_x` → `agent-registry.ai`），然后解析为可达的 IdP URL。
 
 **解析规则（按优先级）：**
 
