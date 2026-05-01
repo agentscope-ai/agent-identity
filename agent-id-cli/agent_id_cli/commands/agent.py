@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from agent_id_client_sdk.identity import AIPIdentity
+from agent_id_client_sdk.identity import Identity
 from agent_id_client_sdk.manage import (
     get_agent_dir,
     create_agent,
@@ -54,7 +54,7 @@ def create(
 @app.command("list")
 def list_agents() -> None:
     """List all registered agents."""
-    agents_dir = Path.home() / ".aip" / "agents"
+    agents_dir = Path.home() / ".agentid" / "agents"
     if not agents_dir.exists():
         typer.echo("No agents found.")
         return
@@ -70,9 +70,7 @@ def list_agents() -> None:
             kid = meta.get("kid", "")
 
             # Verify agent exists on the IdP
-            idp_url = meta.get("idp_url") or AIPIdentity._idp_url_from_agent_id(
-                agent_id
-            )
+            idp_url = meta.get("idp_url") or Identity._idp_url_from_agent_id(agent_id)
             status = ""
             try:
                 resp = httpx.get(f"{idp_url}/agentid/agents/{agent_id}")
@@ -126,7 +124,7 @@ def token(
     )
 
     # Derive IdP URL from agent_id domain
-    idp_url = AIPIdentity._idp_url_from_agent_id(meta["agent_id"])
+    idp_url = Identity._idp_url_from_agent_id(meta["agent_id"])
     url = f"{idp_url}/agentid/token"
     payload = {
         "agent_id": meta["agent_id"],

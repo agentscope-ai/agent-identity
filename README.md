@@ -47,7 +47,7 @@ sequenceDiagram
     CLI->>CLI: 生成密钥对（Ed25519）
     CLI->>IdP: 注册公钥 + 主体信息
     IdP-->>CLI: agent_id + kid
-    CLI->>CLI: 保存私钥到 ~/.aip/agents/shark/
+    CLI->>CLI: 保存私钥到 ~/.agentid/agents/shark/
 ```
 
 **第三步：Agent 认证（运行时，自动）** — Agent 用私钥换短期 JWT，平台本地验签。
@@ -108,7 +108,7 @@ make agent trade BTC/USD 1000 buy IDP=pre
 
 `local`/`pre`/`prod` 各自的 IdP URL 与身份在 `examples/demo-hub/hub.py`
 （`IDP_PROFILES`）与 `examples/demo-agent/agent.py`（`IDENTITY_PROFILES`）中维护，
-均通过 `AIP_IDP` 环境变量选择。
+均通过 `AGENTID_IDP` 环境变量选择。
 
 
 ## 联邦制：谁都能开 IdP

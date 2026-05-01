@@ -1,4 +1,4 @@
-"""Tests for AIPVerifier.report_event + the events helper module."""
+"""Tests for Verifier.report_event + the events helper module."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from agent_id_service_sdk.events import (
     category_tier,
     match_category,
 )
-from agent_id_service_sdk.verifier import AIPAgent, AIPVerifier
+from agent_id_service_sdk.verifier import VerifiedAgent, Verifier
 
 
 PROVIDER_DOMAIN = "idp.example.com"
@@ -23,8 +23,8 @@ AUDIENCE = "https://hub.example.com"
 KID = "test-key-1"
 
 
-def _make_agent() -> AIPAgent:
-    return AIPAgent(
+def _make_agent() -> VerifiedAgent:
+    return VerifiedAgent(
         agent_id="agentid:idp.example.com:agent_x",
         agent_name="bot",
         principal={"id": "p1", "name": "alice", "type": "human"},
@@ -38,8 +38,8 @@ def _make_agent() -> AIPAgent:
     )
 
 
-def _build_verifier(**kwargs) -> AIPVerifier:
-    v = AIPVerifier(
+def _build_verifier(**kwargs) -> Verifier:
+    v = Verifier(
         trusted_providers=[PROVIDER_DOMAIN],
         audience=AUDIENCE,
         **kwargs,
@@ -149,7 +149,7 @@ class TestActivityEventBuild:
 
 
 # ---------------------------------------------------------------------------
-# AIPVerifier.report_event behavior
+# Verifier.report_event behavior
 # ---------------------------------------------------------------------------
 
 
@@ -240,7 +240,7 @@ class TestAutoEmitOnVerify:
     @pytest.mark.asyncio
     async def test_auto_emit_when_enabled(self):
         private_key = Ed25519PrivateKey.generate()
-        verifier = AIPVerifier(
+        verifier = Verifier(
             trusted_providers=[PROVIDER_DOMAIN],
             audience=AUDIENCE,
             activity_api_key="fake",
@@ -278,7 +278,7 @@ class TestAutoEmitOnVerify:
     @pytest.mark.asyncio
     async def test_no_auto_emit_when_disabled(self):
         private_key = Ed25519PrivateKey.generate()
-        verifier = AIPVerifier(
+        verifier = Verifier(
             trusted_providers=[PROVIDER_DOMAIN],
             audience=AUDIENCE,
             activity_api_key="fake",

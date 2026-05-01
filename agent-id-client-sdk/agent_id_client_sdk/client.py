@@ -5,15 +5,15 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .identity import AIPIdentity
+from .identity import Identity
 
 
-class AIPClient:
+class Client:
     """HTTP client that automatically manages AIP token acquisition."""
 
     def __init__(
         self,
-        identity: AIPIdentity,
+        identity: Identity,
         default_audience: str | None = None,
     ) -> None:
         self._identity = identity

@@ -7,11 +7,11 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from agent_id_service_sdk.errors import (
-    AIPTokenExpired,
-    AIPTokenInvalid,
-    AIPProviderUntrusted,
+    TokenExpiredError,
+    TokenInvalidError,
+    ProviderUntrustedError,
 )
-from agent_id_service_sdk.verifier import AIPVerifier
+from agent_id_service_sdk.verifier import Verifier
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ def _encode_jwt(private_key, claims: dict, kid: str = KID) -> str:
 def _build_verifier(public_key, *, trusted=True):
     """Build a verifier with a pre-populated JWKS cache (no HTTP needed)."""
     providers = [PROVIDER_DOMAIN] if trusted else ["other.example.com"]
-    verifier = AIPVerifier(trusted_providers=providers, audience=AUDIENCE)
+    verifier = Verifier(trusted_providers=providers, audience=AUDIENCE)
     # Inject the public key directly into cache so we don't need HTTP.
     verifier._jwks_cache[PROVIDER_DOMAIN] = (
         {KID: public_key},
@@ -56,15 +56,15 @@ def _build_verifier(public_key, *, trusted=True):
 
 @pytest.mark.asyncio
 async def test_missing_authorization_header():
-    verifier = AIPVerifier(trusted_providers=[PROVIDER_DOMAIN], audience=AUDIENCE)
-    with pytest.raises(AIPTokenInvalid):
+    verifier = Verifier(trusted_providers=[PROVIDER_DOMAIN], audience=AUDIENCE)
+    with pytest.raises(TokenInvalidError):
         await verifier.verify("")
 
 
 @pytest.mark.asyncio
 async def test_malformed_authorization_header():
-    verifier = AIPVerifier(trusted_providers=[PROVIDER_DOMAIN], audience=AUDIENCE)
-    with pytest.raises(AIPTokenInvalid):
+    verifier = Verifier(trusted_providers=[PROVIDER_DOMAIN], audience=AUDIENCE)
+    with pytest.raises(TokenInvalidError):
         await verifier.verify("AIP some-token")  # legacy scheme — no longer accepted
 
 
@@ -83,7 +83,7 @@ async def test_expired_token():
         },
     )
 
-    with pytest.raises(AIPTokenExpired):
+    with pytest.raises(TokenExpiredError):
         await verifier.verify(f"Bearer {token}")
 
 
@@ -102,7 +102,7 @@ async def test_wrong_audience():
         },
     )
 
-    with pytest.raises(AIPTokenInvalid, match="[Aa]udience"):
+    with pytest.raises(TokenInvalidError, match="[Aa]udience"):
         await verifier.verify(f"Bearer {token}")
 
 
@@ -121,7 +121,7 @@ async def test_untrusted_provider():
         },
     )
 
-    with pytest.raises(AIPProviderUntrusted):
+    with pytest.raises(ProviderUntrustedError):
         await verifier.verify(f"Bearer {token}")
 
 

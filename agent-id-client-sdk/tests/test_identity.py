@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
 )
 
-from agent_id_client_sdk.identity import AIPIdentity
+from agent_id_client_sdk.identity import Identity
 
 
 def _make_agent_dir(tmp: Path) -> tuple[Path, Ed25519PrivateKey]:
@@ -40,7 +40,7 @@ def _make_agent_dir(tmp: Path) -> tuple[Path, Ed25519PrivateKey]:
 def test_from_profile_loads_identity():
     with tempfile.TemporaryDirectory() as tmp:
         agent_dir, _ = _make_agent_dir(Path(tmp))
-        identity = AIPIdentity.from_profile(agent_dir)
+        identity = Identity.from_profile(agent_dir)
 
         assert identity.agent_id == "agent-001"
         assert identity.kid == "key-001"
@@ -50,7 +50,7 @@ def test_from_profile_loads_identity():
 def test_sign_token_request_produces_hex():
     with tempfile.TemporaryDirectory() as tmp:
         agent_dir, private_key = _make_agent_dir(Path(tmp))
-        identity = AIPIdentity.from_profile(agent_dir)
+        identity = Identity.from_profile(agent_dir)
 
         sig_hex = identity.sign_token_request("https://hub.example.com", 1700000000)
         sig_bytes = bytes.fromhex(sig_hex)
@@ -69,12 +69,12 @@ def test_from_env_loads_identity(monkeypatch):
     private_key = Ed25519PrivateKey.generate()
     raw = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
 
-    monkeypatch.setenv("AIP_AGENT_ID", "agent-env")
-    monkeypatch.setenv("AIP_AGENT_KID", "key-env")
-    monkeypatch.setenv("AIP_PRIVATE_KEY", raw.hex())
-    monkeypatch.setenv("AIP_IDP_URL", "https://idp.env.example.com")
+    monkeypatch.setenv("AGENTID_AGENT_ID", "agent-env")
+    monkeypatch.setenv("AGENTID_AGENT_KID", "key-env")
+    monkeypatch.setenv("AGENTID_AGENT_PRIVATE_KEY", raw.hex())
+    monkeypatch.setenv("AGENTID_IDP_URL", "https://idp.env.example.com")
 
-    identity = AIPIdentity.from_env()
+    identity = Identity.from_env()
     assert identity.agent_id == "agent-env"
     assert identity.kid == "key-env"
     assert identity.idp_url == "https://idp.env.example.com"

@@ -59,17 +59,17 @@ def sign_token_request(
 # Local file management
 # ---------------------------------------------------------------------------
 
-AIP_HOME = Path(os.environ.get("AIP_HOME", Path.home() / ".aip"))
+AGENTID_HOME = Path(os.environ.get("AGENTID_HOME", Path.home() / ".agentid"))
 
 
 def get_config_path() -> Path:
     """Return path to the principal config file."""
-    return AIP_HOME / "config.json"
+    return AGENTID_HOME / "config.json"
 
 
 def get_agent_dir(name: str) -> Path:
     """Return directory for a given agent."""
-    return AIP_HOME / "agents" / name
+    return AGENTID_HOME / "agents" / name
 
 
 def save_config(
@@ -79,7 +79,7 @@ def save_config(
     external_id: str = "",
     name: str = "",
 ) -> None:
-    """Save principal config to ~/.aip/config.json."""
+    """Save principal config to ~/.agentid/config.json."""
     config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -94,7 +94,7 @@ def save_config(
 
 
 def load_config() -> dict:
-    """Load principal config from ~/.aip/config.json."""
+    """Load principal config from ~/.agentid/config.json."""
     config_path = get_config_path()
     if not config_path.exists():
         raise FileNotFoundError("AIP not initialized. Run 'aip init' first.")
@@ -112,7 +112,7 @@ def save_agent(
     principal_external_id: str = "",
     principal_name: str = "",
 ) -> Path:
-    """Save agent identity (keypair + metadata) to ~/.aip/agents/{name}/.
+    """Save agent identity (keypair + metadata) to ~/.agentid/agents/{name}/.
 
     Returns the agent directory path.
     """
@@ -193,7 +193,7 @@ def create_agent(
     """Generate keypair, register with IdP, save locally.
 
     If idp_url/principal_id/management_token are not provided,
-    they are loaded from ~/.aip/config.json.
+    they are loaded from ~/.agentid/config.json.
 
     Returns (RegisteredAgent, agent_dir).
     """

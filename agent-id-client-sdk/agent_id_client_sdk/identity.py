@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 
-class AIPIdentity:
+class Identity:
     """Represents an AIP agent identity with Ed25519 signing capability."""
 
     def __init__(
@@ -25,7 +25,7 @@ class AIPIdentity:
     ) -> None:
         self._agent_id = agent_id
         self._kid = kid
-        self._idp_url = idp_url or AIPIdentity._idp_url_from_agent_id(agent_id)
+        self._idp_url = idp_url or Identity._idp_url_from_agent_id(agent_id)
 
         # Try loading as PEM first, then raw 32-byte seed, then DER.
         self._private_key = _load_private_key(private_key_bytes)
@@ -55,14 +55,14 @@ class AIPIdentity:
     # -- class methods --------------------------------------------------------
 
     @classmethod
-    def from_profile(cls, agent_dir: str | Path | None = None) -> AIPIdentity:
-        """Load identity from ``~/.aip/agents/{name}/``.
+    def from_profile(cls, agent_dir: str | Path | None = None) -> Identity:
+        """Load identity from ``~/.agentid/agents/{name}/``.
 
         *agent_dir* should be the directory that contains ``agent.json`` and
         ``private_key``.  If *None*, the first directory found under
-        ``~/.aip/agents/`` is used.
+        ``~/.agentid/agents/`` is used.
         """
-        aip_home = Path(os.environ.get("AIP_HOME", Path.home() / ".aip"))
+        aip_home = Path(os.environ.get("AGENTID_HOME", Path.home() / ".agentid"))
         base = aip_home / "agents"
 
         if agent_dir is None:
@@ -72,7 +72,7 @@ class AIPIdentity:
             agent_dir = dirs[0]
         else:
             agent_dir = Path(agent_dir)
-            # If it's a plain name (not a path), resolve under ~/.aip/agents/
+            # If it's a plain name (not a path), resolve under ~/.agentid/agents/
             if not agent_dir.is_absolute() and not agent_dir.exists():
                 agent_dir = base / agent_dir
 
@@ -92,19 +92,19 @@ class AIPIdentity:
         )
 
     @classmethod
-    def from_env(cls) -> AIPIdentity:
+    def from_env(cls) -> Identity:
         """Load identity from environment variables.
 
         Expected env vars:
-        - ``AIP_AGENT_ID``
-        - ``AIP_AGENT_KID``
-        - ``AIP_PRIVATE_KEY`` (hex-encoded 32-byte Ed25519 seed)
-        - ``AIP_IDP_URL``
+        - ``AGENTID_AGENT_ID``
+        - ``AGENTID_AGENT_KID``
+        - ``AGENTID_AGENT_PRIVATE_KEY`` (hex-encoded 32-byte Ed25519 seed)
+        - ``AGENTID_IDP_URL``
         """
-        agent_id = os.environ["AIP_AGENT_ID"]
-        kid = os.environ["AIP_AGENT_KID"]
-        private_key_hex = os.environ["AIP_PRIVATE_KEY"]
-        idp_url = os.environ.get("AIP_IDP_URL")
+        agent_id = os.environ["AGENTID_AGENT_ID"]
+        kid = os.environ["AGENTID_AGENT_KID"]
+        private_key_hex = os.environ["AGENTID_AGENT_PRIVATE_KEY"]
+        idp_url = os.environ.get("AGENTID_IDP_URL")
 
         private_key_bytes = bytes.fromhex(private_key_hex)
         return cls(
@@ -115,7 +115,7 @@ class AIPIdentity:
         )
 
     @classmethod
-    def from_zip(cls, file: str | Path | BinaryIO) -> AIPIdentity:
+    def from_zip(cls, file: str | Path | BinaryIO) -> Identity:
         """Load identity from a zip archive containing ``agent.json`` and ``private_key``.
 
         *file* can be a file path or a file-like object (e.g., ``BytesIO``).

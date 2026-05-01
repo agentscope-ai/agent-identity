@@ -116,7 +116,7 @@ deployment.
 |---|---|---|
 | JWT claim | `aip_version` | `agentid_version` |
 | HTTP header | `X-AIP-Token` | `X-AgentID-Token` |
-| HTTP header | `X-AIP-Grant` | `X-AgentID-Grant` |
+| HTTP header | `X-AIP-Grant` | `X-AgentID-Approval` |
 | HTTP auth scheme | `Authorization: AIP <token>` | `Authorization: Bearer <token>` (OAuth 2.0 standard) |
 | URL path | `/aip/auth/register` | `/agentid/auth/register` |
 | URL path | `/aip/agents` | `/agentid/agents` |

@@ -61,7 +61,7 @@ Local dev mode uses direct registration (no GitHub OAuth) so you can try the ful
 > ```
 >
 > The full commands below remain valid (and are what `make` runs under the
-> hood). To switch IdP without `make`, set `AIP_IDP=pre` on both the hub
+> hood). To switch IdP without `make`, set `AGENTID_IDP=pre` on both the hub
 > and agent commands.
 
 ### 1. Install packages (from repo root)
@@ -233,7 +233,7 @@ For terminal-based tools like `aip init`. The user gets a code to enter at githu
 
 ```
 # 1. Set up the IdP with your GitHub OAuth App client ID
-export AIP_GITHUB_CLIENT_ID="your_github_client_id"
+export AGENTID_GITHUB_CLIENT_ID="your_github_client_id"
 
 cd ref-idp
 uvicorn ref_idp.main:app --port 8000
@@ -277,8 +277,8 @@ For browser-based IdP dashboards. Standard OAuth redirect flow with PKCE for sec
 
 ```
 # 1. Set up the IdP with GitHub OAuth App credentials
-export AIP_GITHUB_CLIENT_ID="your_github_client_id"
-export AIP_GITHUB_CLIENT_SECRET="your_github_client_secret"
+export AGENTID_GITHUB_CLIENT_ID="your_github_client_id"
+export AGENTID_GITHUB_CLIENT_SECRET="your_github_client_secret"
 
 cd ref-idp
 uvicorn ref_idp.main:app --port 8000

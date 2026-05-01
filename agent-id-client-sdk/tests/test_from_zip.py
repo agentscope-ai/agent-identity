@@ -1,4 +1,4 @@
-"""Tests for AIPIdentity.from_zip()."""
+"""Tests for Identity.from_zip()."""
 
 import json
 import zipfile
@@ -7,7 +7,7 @@ from io import BytesIO
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from agent_id_client_sdk.identity import AIPIdentity
+from agent_id_client_sdk.identity import Identity
 
 
 def _make_agent_config(
@@ -41,7 +41,7 @@ def test_from_zip_flat():
     config = _make_agent_config()
 
     zip_bytes = _make_zip(config, seed)
-    identity = AIPIdentity.from_zip(BytesIO(zip_bytes))
+    identity = Identity.from_zip(BytesIO(zip_bytes))
 
     assert identity.agent_id == config["agent_id"]
     assert identity.kid == config["kid"]
@@ -59,7 +59,7 @@ def test_from_zip_nested_directory():
     config = _make_agent_config()
 
     zip_bytes = _make_zip(config, seed, nested_dir="my-agent")
-    identity = AIPIdentity.from_zip(BytesIO(zip_bytes))
+    identity = Identity.from_zip(BytesIO(zip_bytes))
 
     assert identity.agent_id == config["agent_id"]
     assert identity.kid == config["kid"]
@@ -71,7 +71,7 @@ def test_from_zip_missing_agent_json():
         zf.writestr("private_key", b"\x00" * 32)
 
     with pytest.raises(FileNotFoundError, match="agent.json"):
-        AIPIdentity.from_zip(BytesIO(buf.getvalue()))
+        Identity.from_zip(BytesIO(buf.getvalue()))
 
 
 def test_from_zip_missing_private_key():
@@ -80,7 +80,7 @@ def test_from_zip_missing_private_key():
         zf.writestr("agent.json", json.dumps(_make_agent_config()))
 
     with pytest.raises(FileNotFoundError, match="private_key"):
-        AIPIdentity.from_zip(BytesIO(buf.getvalue()))
+        Identity.from_zip(BytesIO(buf.getvalue()))
 
 
 def test_from_zip_file_path(tmp_path):
@@ -91,5 +91,5 @@ def test_from_zip_file_path(tmp_path):
     zip_path = tmp_path / "agent.zip"
     zip_path.write_bytes(_make_zip(config, seed))
 
-    identity = AIPIdentity.from_zip(zip_path)
+    identity = Identity.from_zip(zip_path)
     assert identity.agent_id == config["agent_id"]

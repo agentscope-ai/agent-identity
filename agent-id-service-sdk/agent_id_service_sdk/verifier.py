@@ -13,10 +13,10 @@ import jwt
 from jwt import PyJWK
 
 from .errors import (
-    AIPProviderUntrusted,
-    AIPTokenExpired,
-    AIPTokenInvalid,
-    AIPSignatureInvalid,
+    ProviderUntrustedError,
+    TokenExpiredError,
+    TokenInvalidError,
+    SignatureInvalidError,
 )
 from .events import ActivityEvent, category_tier, match_category
 
@@ -27,7 +27,7 @@ _EMIT_QUEUE_MAX = 1024
 
 
 @dataclass
-class AIPAgent:
+class VerifiedAgent:
     """Parsed and verified agent identity from a JWT."""
 
     agent_id: str
@@ -42,7 +42,7 @@ class AIPAgent:
     raw_claims: dict
 
 
-class AIPVerifier:
+class Verifier:
     """Verifies AIP JWT tokens issued by trusted identity providers."""
 
     def __init__(
@@ -182,8 +182,8 @@ class AIPVerifier:
         self,
         authorization_header: str,
         request_context: dict[str, Any] | None = None,
-    ) -> AIPAgent:
-        """Verify an ``Authorization: Bearer <token>`` header and return an `AIPAgent`.
+    ) -> VerifiedAgent:
+        """Verify an ``Authorization: Bearer <token>`` header and return an `VerifiedAgent`.
 
         Convenience wrapper for HTTP handlers. For non-HTTP transports
         (WebSocket, gRPC, MCP), use :meth:`verify_token` directly.
@@ -192,13 +192,13 @@ class AIPVerifier:
         per-request context. Only used when `report_auto_verify=True`.
 
         Raises:
-            AIPTokenInvalid: header is malformed or audience mismatch.
-            AIPProviderUntrusted: issuer is not in trusted_providers.
-            AIPTokenExpired: token has expired.
-            AIPSignatureInvalid: signature verification failed.
+            TokenInvalidError: header is malformed or audience mismatch.
+            ProviderUntrustedError: issuer is not in trusted_providers.
+            TokenExpiredError: token has expired.
+            SignatureInvalidError: signature verification failed.
         """
         if not authorization_header or not authorization_header.startswith("Bearer "):
-            raise AIPTokenInvalid("Authorization header must start with 'Bearer '")
+            raise TokenInvalidError("Authorization header must start with 'Bearer '")
 
         return await self.verify_token(
             authorization_header[7:], request_context=request_context
@@ -209,43 +209,43 @@ class AIPVerifier:
         token: str,
         request_context: dict[str, Any] | None = None,
         audience: str | list[str] | None = None,
-    ) -> AIPAgent:
-        """Verify a raw AIP JWT string and return an `AIPAgent`.
+    ) -> VerifiedAgent:
+        """Verify a raw AIP JWT string and return an `VerifiedAgent`.
 
         Transport-agnostic — use this for WebSocket, gRPC, MCP, or any
         non-HTTP transport where the token isn't in an Authorization header.
 
         Raises:
-            AIPTokenInvalid: token is malformed or audience mismatch.
-            AIPProviderUntrusted: issuer is not in trusted_providers.
-            AIPTokenExpired: token has expired.
-            AIPSignatureInvalid: signature verification failed.
+            TokenInvalidError: token is malformed or audience mismatch.
+            ProviderUntrustedError: issuer is not in trusted_providers.
+            TokenExpiredError: token has expired.
+            SignatureInvalidError: signature verification failed.
         """
         # Decode header (unverified) to get kid.
         try:
             unverified_header = jwt.get_unverified_header(token)
         except jwt.exceptions.DecodeError as exc:
-            raise AIPTokenInvalid(f"Malformed JWT: {exc}") from exc
+            raise TokenInvalidError(f"Malformed JWT: {exc}") from exc
 
         kid = unverified_header.get("kid")
         if not kid:
-            raise AIPTokenInvalid("JWT header missing 'kid'")
+            raise TokenInvalidError("JWT header missing 'kid'")
 
         # Decode payload (unverified) to get iss.
         try:
             unverified_payload = jwt.decode(token, options={"verify_signature": False})
         except jwt.exceptions.DecodeError as exc:
-            raise AIPTokenInvalid(f"Malformed JWT payload: {exc}") from exc
+            raise TokenInvalidError(f"Malformed JWT payload: {exc}") from exc
 
         issuer = unverified_payload.get("iss")
         if not issuer:
-            raise AIPTokenInvalid("JWT missing 'iss' claim")
+            raise TokenInvalidError("JWT missing 'iss' claim")
 
         provider_domain = _normalise_domain(issuer)
 
         # Check trusted providers.
         if provider_domain not in self._trusted_providers:
-            raise AIPProviderUntrusted(f"Provider '{provider_domain}' is not trusted")
+            raise ProviderUntrustedError(f"Provider '{provider_domain}' is not trusted")
 
         # Fetch JWKS and find the key. If the kid is missing, refetch
         # once in case the IDP rotated keys since we last cached.
@@ -255,7 +255,7 @@ class AIPVerifier:
             keys = await self._fetch_jwks(provider_domain, force_refresh=True)
             public_key = keys.get(kid)
         if public_key is None:
-            raise AIPTokenInvalid(
+            raise TokenInvalidError(
                 f"Key '{kid}' not found in JWKS for '{provider_domain}'"
             )
 
@@ -273,20 +273,20 @@ class AIPVerifier:
                 options={"require": ["exp", "iss", "aud"]},
             )
         except jwt.ExpiredSignatureError as exc:
-            raise AIPTokenExpired(str(exc)) from exc
+            raise TokenExpiredError(str(exc)) from exc
         except jwt.InvalidAudienceError as exc:
-            raise AIPTokenInvalid(f"Audience mismatch: {exc}") from exc
+            raise TokenInvalidError(f"Audience mismatch: {exc}") from exc
         except jwt.InvalidSignatureError as exc:
-            raise AIPSignatureInvalid(str(exc)) from exc
+            raise SignatureInvalidError(str(exc)) from exc
         except jwt.PyJWTError as exc:
-            raise AIPTokenInvalid(str(exc)) from exc
+            raise TokenInvalidError(str(exc)) from exc
 
         # Stash kid into raw_claims so report_event can pull it out without
         # re-parsing the JWT header. (kid lives in the header, not the claims.)
         claims_with_kid = dict(claims)
         claims_with_kid["_kid"] = kid
 
-        agent = AIPAgent(
+        agent = VerifiedAgent(
             agent_id=claims.get("sub", ""),
             agent_name=claims.get("agent_name", ""),
             principal=claims.get("principal", {}),
@@ -321,7 +321,7 @@ class AIPVerifier:
         self,
         *,
         category: str,
-        agent: AIPAgent,
+        agent: VerifiedAgent,
         payload: dict[str, Any] | None = None,
         ext: dict[str, Any] | None = None,
         outcome: str = "n/a",
@@ -384,7 +384,7 @@ class AIPVerifier:
 
     async def report_session_start(
         self,
-        agent: AIPAgent,
+        agent: VerifiedAgent,
         session_id: str,
         **payload_extras: Any,
     ) -> None:
@@ -400,7 +400,7 @@ class AIPVerifier:
 
     async def report_session_end(
         self,
-        agent: AIPAgent,
+        agent: VerifiedAgent,
         session_id: str,
         duration_ms: int,
         **payload_extras: Any,

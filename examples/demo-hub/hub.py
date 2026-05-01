@@ -9,17 +9,17 @@ action endpoints to show different approval triggers:
 Two approval modes are supported, auto-detected from the IdP's discovery doc:
 
 - **Local (Model 1)** — hub holds approval state; `approve.py` hits the
-  hub's /agentid/grants endpoints directly.
+  hub's /agentid/approvals endpoints directly.
 - **IdP-delegated (Model 3)** — IdP advertises `approval_endpoint`;
   hub forwards the decision, IdP portal surfaces + signs it, hub verifies
   the JWT against JWKS and materializes a local grant.
 
-Agents see the same 202 + poll + X-AgentID-Grant retry protocol in both modes.
+Agents see the same 202 + poll + X-AgentID-Approval retry protocol in both modes.
 
 Start: uvicorn hub:app --port 8001
-The IdP target is selected by AIP_IDP (default: "local"); see IDP_PROFILES
-below. Set AIP_IDP_URL to override with an arbitrary URL. Match this
-to the agent-side AIP_IDP so the issued tokens are trusted.
+The IdP target is selected by AGENTID_IDP (default: "local"); see IDP_PROFILES
+below. Set AGENTID_IDP_URL to override with an arbitrary URL. Match this
+to the agent-side AGENTID_IDP so the issued tokens are trusted.
 """
 
 import os
@@ -36,7 +36,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from agent_id_service_sdk import AIPVerifier
+from agent_id_service_sdk import Verifier
 
 # Module-level HTTP client so all hub→IdP calls share one connection pool.
 # Created in the lifespan below and closed on shutdown.
@@ -64,7 +64,7 @@ app = FastAPI(title="Demo Hub", lifespan=lifespan)
 
 HUB_URL = "http://localhost:8001"
 
-# IdP target — pick a named profile via AIP_IDP, or override with AIP_IDP_URL.
+# IdP target — pick a named profile via AGENTID_IDP, or override with AGENTID_IDP_URL.
 # Provider domain is derived from the URL so trust stays consistent.
 IDP_PROFILES = {
     "local": "http://localhost:8000",
@@ -74,14 +74,14 @@ IDP_PROFILES = {
 
 
 def _resolve_idp_url() -> tuple[str, str]:
-    explicit = os.environ.get("AIP_IDP_URL")
+    explicit = os.environ.get("AGENTID_IDP_URL")
     if explicit:
         return "custom", explicit
-    profile = os.environ.get("AIP_IDP", "local")
+    profile = os.environ.get("AGENTID_IDP", "local")
     url = IDP_PROFILES.get(profile)
     if url is None:
         raise SystemExit(
-            f"AIP_IDP={profile!r} unknown; choose {list(IDP_PROFILES)} or set AIP_IDP_URL"
+            f"AGENTID_IDP={profile!r} unknown; choose {list(IDP_PROFILES)} or set AGENTID_IDP_URL"
         )
     return profile, url
 
@@ -90,7 +90,7 @@ _profile, IDP_BASE_URL = _resolve_idp_url()
 IDP_PROVIDER = urlparse(IDP_BASE_URL).netloc
 print(f"[config] IdP profile={_profile} → {IDP_BASE_URL} (provider={IDP_PROVIDER})")
 
-verifier = AIPVerifier(
+verifier = Verifier(
     trusted_providers=[IDP_PROVIDER],
     audience=HUB_URL,
     provider_urls={IDP_PROVIDER: IDP_BASE_URL},
@@ -356,7 +356,7 @@ def _notify_principal(approval: ApprovalRequest, principal_claim: dict) -> None:
     print(
         f"\n[notify → {target}] "
         f"{approval.action} — {approval.details} "
-        f"(approve: {HUB_URL}/agentid/grants/{approval.approval_id}/approve)\n"
+        f"(approve: {HUB_URL}/agentid/approvals/{approval.approval_id}/approve)\n"
     )
 
 
@@ -412,7 +412,7 @@ def _approval_response(
         "resource": approval.resource,
         "action": approval.action,
         "details": approval.details,
-        "poll_url": f"/agentid/grants/{approval.approval_id}",
+        "poll_url": f"/agentid/approvals/{approval.approval_id}",
         "expires_at": _iso(approval.expires_at),
         "approval_via": "idp" if approval.delegated else "hub",
     }
@@ -643,7 +643,7 @@ def _serialize_grant(grant: Grant) -> dict:
     }
 
 
-@app.get("/agentid/grants/{approval_id}")
+@app.get("/agentid/approvals/{approval_id}")
 async def poll_grant(approval_id: str, request: Request):
     agent = await get_agent(request)
     approval = approvals.get(approval_id)
@@ -685,7 +685,7 @@ class ApproveRequest(BaseModel):
     max_amount: float | None = None
 
 
-@app.post("/agentid/grants/{approval_id}/approve")
+@app.post("/agentid/approvals/{approval_id}/approve")
 async def approve(approval_id: str, body: ApproveRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -739,7 +739,7 @@ class DenyRequest(BaseModel):
     reason: str = "Denied by principal"
 
 
-@app.post("/agentid/grants/{approval_id}/deny")
+@app.post("/agentid/approvals/{approval_id}/deny")
 async def deny(approval_id: str, body: DenyRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -759,7 +759,7 @@ async def deny(approval_id: str, body: DenyRequest | None = None):
     return {"approval_id": approval_id, "status": "denied", "reason": body.reason}
 
 
-@app.get("/agentid/grants")
+@app.get("/agentid/approvals")
 async def list_grants(principal_id: str | None = None, status: str | None = None):
     items = []
     for approval in approvals.values():

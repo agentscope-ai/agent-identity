@@ -1,8 +1,13 @@
 # MCP Server + AgentID — design sketch
 
-Status: design sketch, not yet implemented. Captured here so the framing
-isn't lost; a runnable example under `examples/mcp-server-aip/` can be
-built from this when we're ready.
+> **Status: EXPERIMENTAL / DEFERRED.** This is a design sketch only —
+> no code shipped, no integration tested. Captured for future reference;
+> implementation queued behind core rebrand and rollout work. If you're
+> reading this looking for "how do I run AgentID with MCP today," the
+> honest answer is "not yet, this design is the planned approach."
+
+A runnable example under `examples/mcp-server-agentid/` can be built
+from this when we're ready.
 
 The question this answers: *"how does our AgentID fit in front of an MCP
 server?"* The four pieces an MCP operator actually has to think about:

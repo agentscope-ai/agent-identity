@@ -14,12 +14,12 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 
-class AIPActivityReporter:
+class ActivityReporter:
     """Reports agent activity to an AIP activity tracker, signed with Ed25519.
 
     DEPRECATED: this implements the legacy hub-signed session-attestation flow
     (POST /aip/reports). The new event-roll-up design replaces it with
-    `AIPVerifier.report_event` (granular events POSTed to /aip/activity;
+    `Verifier.report_event` (granular events POSTed to /aip/activity;
     server-side aggregation produces session attestations). Will be removed
     in the next minor release.
     """
@@ -31,8 +31,8 @@ class AIPActivityReporter:
         activity_tracker_url: str,
     ) -> None:
         warnings.warn(
-            "AIPActivityReporter is deprecated and will be removed in the next "
-            "minor release. Use AIPVerifier.report_event for the event-roll-up "
+            "ActivityReporter is deprecated and will be removed in the next "
+            "minor release. Use Verifier.report_event for the event-roll-up "
             "flow.",
             DeprecationWarning,
             stacklevel=2,

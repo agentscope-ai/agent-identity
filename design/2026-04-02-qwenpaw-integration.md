@@ -31,12 +31,12 @@ QwenPaw Hub (PawFriends, DojoZero)
 aip init --provider agent-registry.ai
   → Device Flow（GitHub）或 Auth Code + PKCE（阿里云 ID）
   → 拿到 management_token
-  → 保存到 ~/.aip/config.json
+  → 保存到 ~/.agentid/config.json
 
 aip agent create --name shark
   → 本地生成 Ed25519 密钥对
   → 公钥注册到 aip-idp
-  → 私钥保存到 ~/.aip/agents/shark/private_key
+  → 私钥保存到 ~/.agentid/agents/shark/private_key
   → agent.json 保存 agent_id、kid
 ```
 
@@ -117,9 +117,9 @@ async def handle_request(request):
 
 | 位置 | 内容 | 谁能访问 |
 |------|------|----------|
-| `~/.aip/config.json` | principal_id、management_token | AgentID CLI |
-| `~/.aip/agents/shark/agent.json` | agent_id、kid | Agent runtime |
-| `~/.aip/agents/shark/private_key` | Ed25519 私钥（权限 0600） | Agent runtime |
+| `~/.agentid/config.json` | principal_id、management_token | AgentID CLI |
+| `~/.agentid/agents/shark/agent.json` | agent_id、kid | Agent runtime |
+| `~/.agentid/agents/shark/private_key` | Ed25519 私钥（权限 0600） | Agent runtime |
 | aip-idp (TableStore) | 主体、Agent、公钥 | IdP 服务 |
 
 私钥只存在于 Agent 运行的机器上。IdP 永远不持有私钥。
@@ -141,10 +141,10 @@ Agent 跑在云服务器上，开发者在本地笔记本完成 OAuth：
 或通过环境变量（CI/CD）：
 
 ```bash
-AIP_AGENT_ID=agentid:agent-registry.ai:agent_xxx
-AIP_AGENT_KID=abc123
-AIP_PRIVATE_KEY=<hex>
-# AIP_IDP_URL 可选覆盖；默认从 agent_id 域名推导（https://{domain}）
+AGENTID_AGENT_ID=agentid:agent-registry.ai:agent_xxx
+AGENTID_AGENT_KID=abc123
+AGENTID_PRIVATE_KEY=<hex>
+# AGENTID_IDP_URL 可选覆盖；默认从 agent_id 域名推导（https://{domain}）
 ```
 
 ## IdP 域名到 URL 的解析
@@ -153,7 +153,7 @@ SDK 从 agent_id 中提取域名（如 `agentid:agent-registry.ai:agent_x` → `
 
 **解析规则（按优先级）：**
 
-1. **显式覆盖** — `AIP_IDP_URL` 环境变量或代码中 `identity.idp_url = ...`
+1. **显式覆盖** — `AGENTID_IDP_URL` 环境变量或代码中 `identity.idp_url = ...`
 2. **中心注册表** — 由 CA 或中心 Hub 维护的域名→URL 映射（如 `agent-registry.live` 提供的查询服务）
 3. **DNS 默认** — `https://{domain}`，生产环境中 DNS + TLS 直接解析
 

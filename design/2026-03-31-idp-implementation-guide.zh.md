@@ -83,7 +83,7 @@ graph TB
   "registration_endpoint": "https://identity.example.com/aip/agents",
   "activity_endpoint": "https://identity.example.com/aip/activity",
   "supported_algorithms": ["EdDSA"],
-  "aip_version": "1.0"
+  "agentid_version": "1.0"
 }
 ```
 

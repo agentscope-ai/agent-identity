@@ -1,5 +1,5 @@
-from .identity import AIPIdentity
-from .client import AIPClient
+from .identity import Identity
+from .client import Client
 from .manage import (
     generate_keypair,
     compute_kid,
@@ -21,8 +21,8 @@ from .manage import (
 )
 
 __all__ = [
-    "AIPIdentity",
-    "AIPClient",
+    "Identity",
+    "Client",
     "generate_keypair",
     "compute_kid",
     "sign_token_request",
@@ -41,3 +41,7 @@ __all__ = [
     "DeviceFlowChallenge",
     "PrincipalCredentials",
 ]
+
+# v0.1 compatibility aliases — to be removed in v1.0.
+AIPIdentity = Identity
+AIPClient = Client

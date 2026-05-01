@@ -69,7 +69,7 @@ def test_crypto_sign_and_verify():
 
 def test_config_paths():
     """Verify config path helpers return expected locations."""
-    from agent_id_cli.config import AIP_HOME, get_config_path, get_agent_dir
+    from agent_id_cli.config import AGENTID_HOME, get_config_path, get_agent_dir
 
-    assert get_config_path() == AIP_HOME / "config.json"
-    assert get_agent_dir("myagent") == AIP_HOME / "agents" / "myagent"
+    assert get_config_path() == AGENTID_HOME / "config.json"
+    assert get_agent_dir("myagent") == AGENTID_HOME / "agents" / "myagent"
