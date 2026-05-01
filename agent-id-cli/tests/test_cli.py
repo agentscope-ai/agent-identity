@@ -12,7 +12,7 @@ def test_app_has_init_command():
     """Verify the init command is registered."""
     result = runner.invoke(app, ["init", "--help"])
     assert result.exit_code == 0
-    assert "Initialize AIP CLI" in result.output
+    assert "Initialize AgentID CLI" in result.output
 
 
 def test_app_has_agent_group():

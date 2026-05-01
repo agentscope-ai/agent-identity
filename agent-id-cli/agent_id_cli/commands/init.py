@@ -1,4 +1,4 @@
-"""aip init command — authenticate with an IdP.
+"""agent-id init command — authenticate with an IdP.
 
 Default: GitHub OAuth Device Flow (production).
 --dev mode: direct registration without OAuth (local development/testing).
@@ -90,10 +90,10 @@ def init(
         help="Principal name (required in --dev mode)",
     ),
 ) -> None:
-    """Initialize AIP CLI — authenticate with an identity provider."""
+    """Initialize AgentID CLI — authenticate with an identity provider."""
     config_path = get_config_path()
     if config_path.exists():
-        overwrite = typer.confirm("AIP CLI is already initialized. Overwrite?")
+        overwrite = typer.confirm("AgentID CLI is already initialized. Overwrite?")
         if not overwrite:
             raise typer.Abort()
 

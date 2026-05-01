@@ -1,4 +1,4 @@
-"""aip agent command group — create, list, and get tokens for agents."""
+"""agent-id agent command group — create, list, and get tokens for agents."""
 
 import json
 import time
@@ -75,7 +75,7 @@ def list_agents() -> None:
             )
             status = ""
             try:
-                resp = httpx.get(f"{idp_url}/aip/agents/{agent_id}")
+                resp = httpx.get(f"{idp_url}/agentid/agents/{agent_id}")
                 if resp.status_code == 200:
                     remote = resp.json()
                     remote_kids = [k["kid"] for k in remote.get("public_keys", [])]
@@ -107,7 +107,9 @@ def token(
     agent_json = agent_dir / "agent.json"
 
     if not agent_json.exists():
-        typer.echo(f"Agent '{name}' not found. Run 'aip agent create' first.", err=True)
+        typer.echo(
+            f"Agent '{name}' not found. Run 'agent-id agent create' first.", err=True
+        )
         raise typer.Exit(code=1)
 
     with open(agent_json) as f:
@@ -125,7 +127,7 @@ def token(
 
     # Derive IdP URL from agent_id domain
     idp_url = AIPIdentity._idp_url_from_agent_id(meta["agent_id"])
-    url = f"{idp_url}/aip/token"
+    url = f"{idp_url}/agentid/token"
     payload = {
         "agent_id": meta["agent_id"],
         "kid": meta["kid"],

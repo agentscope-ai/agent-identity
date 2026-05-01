@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-id-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "AgentID — CLI for managing AI agent identities"
 requires-python = ">=3.10"
 license = "Apache-2.0"
