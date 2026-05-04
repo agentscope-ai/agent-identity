@@ -312,6 +312,22 @@ This deletes the spec/impl divergence: §8.3's session-summary becomes a recomme
 the gap that turns Tier-1 from "cross-hub aggregation primitive" into
 "category name everyone uses differently." This section closes it.
 
+The schemas below are now **shipped in `aip-activity/app/schemas/categories.py`**
+(2026-05-04 reconciliation pass). Treat the field-level shapes here as
+canonical; the `aip-activity` Pydantic models are the source of truth.
+The activity service enforces them on ingest via Tier-1 dispatch.
+
+> **Privacy by default.** A pattern I missed in the first draft of this
+> doc but that runs through the actual implementation: identifiers and
+> values that could leak content are *hashed or bucketed*, not raw.
+> `tool.use.args_hash` (sha256) instead of args. `data.read.resource_id_hash`
+> instead of resource_id. `transfer.value.amount_bucket` (`lt_100` /
+> `100_1k` / `1k_10k` / `10k_plus`) instead of raw amount. Raw values
+> may be carried on the side at `privacy_level=full` and dropped on
+> summary. Cross-hub aggregation depends on the bucketed/hashed forms;
+> raw forms are for the hub's own consumers only. This is a non-trivial
+> design property worth keeping as new Tier-1 schemas land.
+
 The current Tier-1 list
 (`agent-id-service-sdk/events.py:TIER1_CATEGORIES`) bundles three
 different category kinds, surfaced by the Bucket analysis:
@@ -348,30 +364,43 @@ emitted-everywhere. A hub that has no economy never fires
 
 ### 9.2 Bucket A — universal lifecycle categories
 
-Already Tier-1 with implicit canonical fields. The spec rev makes them
-explicit:
+Schemas are explicit in `aip-activity/app/schemas/categories.py`.
+Envelope fields (`agent_id`, `principal_id`, `audience`, `issuer`,
+`kid`, `timestamp`) are universal across all categories — the payloads
+below are what's category-specific.
 
 ```
-auth.verify:  { agent_id, principal_id, audience, issuer, kid, route,
-                outcome="success", timestamp }
+auth.verify payload:
+  { route, success: bool }
 
-auth.deny:    { agent_id, principal_id, audience, issuer, kid, route,
-                outcome="failure", reason, timestamp }
-              # reason: enum["token_expired", "token_invalid",
-              #              "signature_invalid", "provider_untrusted",
-              #              "audience_mismatch", "principal_revoked"]
+auth.deny payload:
+  { route, error_class }
+  # error_class is a short code (free-form string by schema, but
+  # conventional values are: token_expired, token_invalid,
+  # signature_invalid, provider_untrusted, audience_mismatch,
+  # principal_revoked). Cross-hub anomaly detection aggregates by this.
 
-session.start: { agent_id, principal_id, audience, session_id,
-                 attributes?, timestamp }
+session.start payload:
+  { session_id, scenario?, attributes? }
+  # scenario is a generic kind-of-session label any hub may set
+  # ("trial", "chat", "task", "analytics"). Cross-hub queries can
+  # filter by it. attributes is an open hub-context dict (drops at
+  # privacy_level=summary).
 
-session.end:   { agent_id, principal_id, audience, session_id,
-                 duration_ms, outcome, summary?, timestamp }
+session.end payload:
+  { session_id, duration_ms, outcome?, total_tokens?, total_cost_usd?,
+    summary? }
+  # total_tokens/total_cost_usd are LLM-spend roll-ups — useful
+  # cross-hub for any LLM-using agent. summary is an open hub-summary
+  # dict (drops at summary).
 ```
 
-`attributes` and `summary` are open-shape dicts. Hubs include domain
-context (e.g., DojoZero puts `{ trial_id, sport_type, persona }` in
-`attributes`). Cross-hub queries don't depend on these fields; they're
-informational.
+`attributes` and `summary` are open-shape dicts that hubs use to attach
+domain-flavoured context without polluting the canonical schema.
+DojoZero puts `{ persona, model, sport_type }` in `attributes` and
+`{ final_balance, last_observed_sequence, bet_count }` in `summary`.
+Cross-hub queries don't depend on these fields; they're informational
+and are dropped on `privacy_level=summary`.
 
 ### 9.3 Bucket B — canonical schemas
 
@@ -382,86 +411,115 @@ Tier-2 events via correlation IDs (§9.6).
 #### 9.3.1 transfer.value
 
 ```
-amount: decimal-string             # always positive; preserved as string
-currency: string                    # ISO-4217 ("USD") OR hub-defined
-                                   # ("DOJOZERO_USD", "POLY_USDC")
-direction: enum["out", "in", "internal"]  # from the agent's perspective
-purpose: enum["stake", "payout", "fee", "refund", "trade",
-              "transfer", "credit", "debit"]
-counterparty_principal_id: string|null  # who's on the other side
-transaction_id: string              # hub-unique; used by linked events
-linked_tier2: string|null          # category of the linked Tier-2 event
-                                   # (e.g., "dojozero.bet_decision")
+amount_bucket: enum["lt_100", "100_1k", "1k_10k", "10k_plus"]
+                                   # required; the privacy-preserving
+                                   # form. Cross-hub aggregation reads
+                                   # this, not the raw amount.
+currency: string                    # required. ISO-4217 ("USD") OR
+                                   # hub-defined ("DOJOZERO_USD",
+                                   # "POLY_USDC")
+direction: enum["out", "in"]        # required; from the agent's
+                                   # perspective
+amount: float|null                  # raw amount; OPTIONAL. May be
+                                   # omitted entirely. If present,
+                                   # drops at privacy_level=summary.
+purpose: string|null                # free-form short verb; conventional
+                                   # values: "stake", "payout", "fee",
+                                   # "refund", "trade", "transfer",
+                                   # "credit", "debit"
+transaction_id: string|null         # hub-unique. The join key for
+                                   # linked Tier-2 events and for
+                                   # approval.* via request_id.
+counterparty_principal_id: string|null  # the other side, if any
+linked_tier2: string|null          # the Tier-2 category that carries
+                                   # the hub-specific richness (e.g.,
+                                   # "dojozero.bet_decision")
 ```
 
 The `linked_tier2` field lets consumers join a Tier-1 transfer to its
 richer Tier-2 sibling without reverse-engineering the relationship.
 
+The amount-bucketing pattern is what makes cross-hub aggregation work
+without leaking individual transaction sizes. Bucket whitelist lives in
+`AMOUNT_BUCKETS` (`aip-activity/app/schemas/categories.py`); evolves
+under the Tier-1 schema-evolution rules in §13.
+
 #### 9.3.2 tool.use
 
 ```
-tool_name: string                   # hub-namespaced
+tool_name: string                   # required; hub-namespaced
                                    # ("dojozero.place_bet", "mcp.read_file")
-tool_invocation_id: string          # hub-unique
-outcome: enum["success", "error", "denied"]
-latency_ms: int                     # >= 0
+args_hash: string                   # required; sha256:<64-hex>
+                                   # privacy-preserving hash of args.
+                                   # Raw args go in a linked Tier-2.
+tool_invocation_id: string          # required; hub-unique. Lets
+                                   # model.call and transfer.value
+                                   # link via linked_tool_invocation_id
+                                   # / linked_transfer_id.
+duration_ms: int|null               # >= 0
+success: bool|null
 linked_transfer_id: string|null     # if this tool.use caused a
                                    # transfer.value, its transaction_id
 ```
 
-Tool inputs/outputs are NOT in the canonical schema. They go in a
-linked Tier-2 event (e.g., `dojozero.tool.place_bet` with the bet args).
+Tool inputs/outputs are NOT in the canonical schema; the `args_hash`
+makes the call audit-able without revealing content. Full args go in a
+linked Tier-2 event (e.g., `dojozero.tool.place_bet` with the bet
+markets/selections).
 
 #### 9.3.3 model.call
 
 ```
-model_name: string                  # provider-qualified
-                                   # ("anthropic/claude-haiku-4-5",
-                                   #  "dashscope/qwen3-max")
-input_tokens: int
-output_tokens: int
-total_tokens: int
-latency_ms: int
-cost_amount: decimal-string|null    # in cost_currency, null if not tracked
-cost_currency: string|null          # typically "USD"
-outcome: enum["success", "error", "filtered"]
-linked_tool_invocation_id: string|null  # if this call was inside a
+model: string                       # required. Provider-qualified or
+                                   # bare ("claude-haiku-4-5",
+                                   # "qwen3-max", or
+                                   # "anthropic/claude-haiku-4-5").
+                                   # Cross-hub queries normalise as
+                                   # needed; spec doesn't mandate.
+tokens_in: int                      # required; >= 0
+tokens_out: int                     # required; >= 0
+latency_ms: int|null
+cost_usd: float|null                # USD-only for v1. Currency-flexible
+                                   # cost_amount/cost_currency split
+                                   # deferred until a hub asks for it.
+purpose: string|null                # free-form ("reasoning", "tool",
+                                   # "summarisation")
+outcome: enum["success", "error", "filtered"]|null
+linked_tool_invocation_id: string|null  # if this call ran inside a
                                        # ReAct tool loop
 ```
 
-**Keep at Tier-1** with the explicit caveat in the spec: AIP
-`model.call` is the agent-protocol audit shape. For high-resolution
-observability, hubs SHOULD also use OTel-GenAI or provider-native
-telemetry. The two coexist; AIP doesn't pretend to be Langsmith.
+**Kept at Tier-1** with explicit caveat: AIP `model.call` is the
+agent-protocol *audit shape*. For high-resolution LLM observability,
+hubs SHOULD also use OTel-GenAI or provider-native telemetry. The two
+coexist; AIP doesn't pretend to be Langsmith. The minimal canonical
+shape is enough for cross-hub spend aggregation.
 
-### 9.4 Bucket C — narrow `data.read` / `data.write`
+### 9.4 Bucket C — `data.read` / `data.write` (kept simple, narrow rule deferred)
 
-These overlap with `tool.use` whenever data access happens via a tool
-(reading a file via a `read_file` tool fires both, with no clear
-boundary). Two ways to fix:
-
-**Option A — narrow.** Restrict to *audit-relevant* data access. A hub
-declares `data_namespaces` in its manifest (e.g., `["pii",
-"regulated_corpus_X"]`); only access to those namespaces fires
-`data.read`/`data.write`. Operational data access stays under
-`tool.use`.
+Shipped shape mirrors the privacy-by-default convention:
 
 ```
-data_namespace: string              # must be in manifest.data_namespaces
-operation: enum["read", "write", "delete", "list"]
-record_count: int                   # number of records accessed
-sensitivity: enum["public", "internal", "confidential", "regulated"]
-linked_tool_invocation_id: string|null
+data.read  payload: { resource_kind, resource_id_hash }
+data.write payload: { resource_kind, resource_id_hash, op }
+                    # resource_id_hash is sha256:<64-hex>
 ```
 
-**Option B — demote.** Drop from Tier-1. Hubs with audit-relevant
-access emit `<ns>.data_access` Tier-2 events with hub-defined shape.
+**The boundary problem hasn't gone away** — these still overlap
+conceptually with `tool.use` for any hub that reads/writes via a tool.
+For v1 the spec says "hubs SHOULD only emit `data.*` for
+audit-relevant access (PII, regulated corpora); operational reads
+stay under `tool.use`." Convention only — not enforced server-side.
 
-**Lean Option A.** The compliance use case is real, narrow scope makes
-the boundary clear, and it gives hubs an explicit declaration for what
-counts as audit-relevant. Option B abandons the cross-hub query
-"show all sensitive-data access by this agent" which is exactly the
-kind of regulatory primitive Tier-1 should provide.
+The earlier proposal of narrowing via a manifest-declared
+`data_namespaces` list (`["pii", "regulated_corpus_X"]`) plus
+`{ data_namespace, operation, record_count, sensitivity,
+linked_tool_invocation_id }` payload is **deferred** to a Tier-1
+schema rev once a real adopter needs it. v1 keeps the simpler shape
+shipped today; v2 can layer the narrowing on as a backwards-compatible
+minor bump (additive optional fields + manifest field) when there's
+a concrete consumer for the cross-hub "all sensitive-data access by
+this agent" query.
 
 ### 9.5 Missing Tier-1 categories: approval and delegation
 
@@ -470,21 +528,22 @@ model (§4.4) are core to the spec but have no Tier-1 events today. They
 belong at Tier-1: universal lifecycle for any agent under any hub,
 cross-hub-aggregable, regulator- and auditor-relevant.
 
+Shipped shapes (envelope fields omitted; payload only):
+
 ```
-approval.requested: { agent_id, principal_id, action, scope,
-                      expires_at, request_id, timestamp }
+approval.requested: { request_id, action, scope?, expires_at? }
 
-approval.granted:   { agent_id, principal_id, request_id, note?,
-                      responded_at, granted_scope, timestamp }
+approval.granted:   { request_id, granted_scope?, responded_at?, note? }
+                    # note drops at privacy_level=summary
 
-approval.denied:    { agent_id, principal_id, request_id, note?,
-                      responded_at, reason, timestamp }
+approval.denied:    { request_id, reason?, responded_at?, note? }
+                    # note drops at summary; reason kept for cross-hub
+                    # anomaly detection
 
-delegation.granted: { agent_id, principal_id, scope, capabilities,
-                      granted_to, expires_at, delegation_id, timestamp }
+delegation.granted: { delegation_id, scope?, capabilities?,
+                      granted_to?, expires_at? }
 
-delegation.revoked: { agent_id, principal_id, delegation_id, reason?,
-                      revoked_at, timestamp }
+delegation.revoked: { delegation_id, reason?, revoked_at? }
 ```
 
 These let consumers answer:
@@ -521,18 +580,35 @@ hub-specific integration.
 ### 9.7 What NOT to canonicalize
 
 Worth being explicit about scope: the Tier-1 schemas are deliberately
-*minimal*. Things that don't go in:
+*minimal* and *privacy-preserving*. Things that don't go in:
 
+- **Raw identifiers and amounts.** Use the bucketed/hashed forms:
+  `amount_bucket` (not raw amount), `args_hash` (not raw args),
+  `resource_id_hash` (not raw resource_id). Raw values may be carried
+  alongside (e.g., `transfer.value.amount` is optional and present at
+  `privacy_level=full`) but they're not what cross-hub aggregation
+  reads. This is the **privacy-by-default** convention; new Tier-1
+  schemas SHOULD follow it.
 - **Domain-specific args / payloads** (bet markets, asset pairs,
   prompt text, file paths). These belong in linked Tier-2 events.
 - **Per-provider observability fields** (Anthropic's `stop_reason`,
   OpenAI's `system_fingerprint`). These belong in OTel-GenAI / native
   telemetry, not AIP.
-- **Free-form text** (LLM prompt content, model outputs, tool args).
-  Privacy-redacted in payload, full content in OTel.
+- **Free-form long text** (LLM prompt content, model outputs, tool
+  args). The hash patterns above keep the audit trail without
+  exposing content; full text goes to OTel for hubs that want it.
+- **Hub-specific fields polluting the canonical surface.** Earlier
+  iterations had `session.start.{persona, sport, trial_ref_hash}` and
+  `session.end.{decisions_made, win_rate_bucket}` — these were
+  DojoZero-flavored fields hardcoded into the cross-hub schema. They
+  moved to `attributes` / `summary` open dicts during the 2026-05-04
+  reconciliation. Future Tier-1 schema revs MUST resist re-introducing
+  this pattern; hub-specific richness goes in Tier-2 or in the open
+  context dicts.
 
-The Tier-1 surface stays small and stable so cross-hub aggregation
-keeps working as the protocol evolves.
+The Tier-1 surface stays small, privacy-preserving, and stable so
+cross-hub aggregation keeps working as the protocol evolves and as new
+hubs adopt.
 
 ## 10. The interim YAML pattern
 
