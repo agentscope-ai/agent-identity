@@ -1,4 +1,4 @@
-"""End-to-end test of the AIP IdP flow.
+"""End-to-end test of the AgentID IdP flow.
 
 1. Register a principal
 2. Create an agent with a public key
@@ -29,6 +29,10 @@ async def client(tmp_path):
     settings.database_url = f"sqlite+aiosqlite:///{tmp_path}/test.db"
     settings.idp_signing_key_path = str(tmp_path / "test_signing_key.pem")
     settings.idp_domain = "test.aip.example"
+    # idp_base_url is derived from idp_domain in __post_init__ at import time
+    # and not re-derived on mutation; set it explicitly so the discovery doc
+    # matches what this test expects.
+    settings.idp_base_url = "https://test.aip.example"
 
     # Re-create the engine with the new URL
     from ref_idp.models import database as db_module
@@ -56,7 +60,7 @@ async def client(tmp_path):
 
 @pytest.mark.asyncio
 async def test_full_flow(client):
-    """Test the complete AIP flow: register principal, create agent, get token."""
+    """Test the complete AgentID flow: register principal, create agent, get token."""
 
     # --- Step 1: Register a principal ---
     resp = await client.post(

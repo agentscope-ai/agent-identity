@@ -396,7 +396,7 @@ async def register_principal(body: RegisterPrincipalRequest, request: Request):
         )
         if existing_result.scalar_one_or_none():
             raise HTTPException(
-                409, "Principal already exists. Use /aip/auth/login instead."
+                409, "Principal already exists. Use /agentid/auth/login instead."
             )
 
         principal_id = str(uuid.uuid4())

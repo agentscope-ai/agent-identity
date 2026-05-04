@@ -1,4 +1,4 @@
-"""AIP Identity Provider - FastAPI application."""
+"""AgentID reference IdP — FastAPI application."""
 
 import os
 
@@ -11,7 +11,7 @@ from ref_idp.crypto.keys import compute_kid
 from ref_idp.models.database import init_db
 from ref_idp.routes import agents, auth, discovery, token
 
-app = FastAPI(title="AIP Identity Provider", version="0.1.0")
+app = FastAPI(title="AgentID reference IdP", version="0.1.0")
 
 # CORS
 app.add_middleware(

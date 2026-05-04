@@ -1,4 +1,4 @@
-"""JWT creation and decoding for AIP tokens."""
+"""JWT creation and decoding for AgentID tokens."""
 
 import time
 from typing import Any
