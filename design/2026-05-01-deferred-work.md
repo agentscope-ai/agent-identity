@@ -64,6 +64,12 @@ preserves the security property.
 attractive but the security trade-off needs more thought. Revisit when
 adding new hubs becomes operationally painful.
 
+> **Update 2026-05-04:** superseded by
+> [`2026-05-04-activity-discovery.en.md`](./2026-05-04-activity-discovery.en.md)
+> §5, which picks the "drop the static key, add an outer hub-signed
+> envelope" path as the right design. Pending the explicit yes/no
+> decision called out in §13 of that doc.
+
 ## 3. Internal symbols still using AIP
 
 The brand rebrand swept user-facing surfaces. A few internal artifacts
@@ -126,3 +132,40 @@ Easy to add an alias if requested:
 agent-id = "agent_id_cli.main:app"
 aip = "agent_id_cli.main:app"  # legacy alias
 ```
+
+## 8. Well-known URL paths still using `aip-` prefix
+
+The 2026-04-30 rebrand swept package names, class names, env vars, and
+DB tables but **didn't rename the `.well-known/` URL paths**. The
+deployed IdP at `pre.agent-id.live` still serves at:
+
+- `/.well-known/aip-configuration`
+- `/.well-known/aip-jwks`
+
+And the SDK's `Verifier` fetches from those legacy paths. The activity
+service routes (`/aip/activity`, `/aip/services`) and the spec
+example in `2026-03-25-agentid.en.md` line 349 are similarly stuck on
+the old prefix.
+
+Surfaced by the `2026-05-04-activity-discovery.en.md` design — the new
+well-known paths it defines (`agent-id-activity-manifest`, etc.) use
+the correct `agent-id-` prefix, which exposed the inconsistency.
+
+**Plan when this gets fixed:**
+
+1. Add new paths alongside the old at the IdP:
+   `/.well-known/agent-id-configuration`, `/.well-known/agent-id-jwks`.
+   Both serve the same content during the soak window.
+2. Update SDK to fetch from new paths first, fall back to old.
+3. Update `aip-activity` route mounting: add `/agentid/*` aliases for
+   `/aip/*` routes.
+4. Update spec doc references.
+5. After ≥6-month soak, remove old paths.
+
+This is bundled with the activity-discovery rollout if §5 of that
+design ships at the same time as Phase A; otherwise stand-alone PR.
+
+**Why not bundle with the original rebrand:** rebrand-plan §6 phasing
+deliberately staged renaming low-blast-radius first
+(packages/classes/env) before high-blast-radius (HTTP wire). Wire
+paths got punted; this is the punt being acknowledged.
