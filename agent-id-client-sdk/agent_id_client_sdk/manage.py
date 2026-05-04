@@ -169,7 +169,7 @@ def register_agent(
     Returns the assigned agent_id and kid.
     """
     resp = httpx.post(
-        f"{idp_url}/aip/agents",
+        f"{idp_url}/agentid/agents",
         json={
             "name": name,
             "public_key": public_key_hex,
@@ -260,7 +260,7 @@ def device_flow_init(idp_url: str) -> DeviceFlowChallenge:
 
     Returns a challenge the caller should display to the user.
     """
-    resp = httpx.post(f"{idp_url}/aip/auth/device")
+    resp = httpx.post(f"{idp_url}/agentid/auth/device")
     resp.raise_for_status()
     data = resp.json()
     return DeviceFlowChallenge(
@@ -279,7 +279,7 @@ def device_flow_poll(idp_url: str, device_code: str) -> PrincipalCredentials | N
     Raises httpx.HTTPStatusError on failure.
     """
     resp = httpx.post(
-        f"{idp_url}/aip/auth/device/token",
+        f"{idp_url}/agentid/auth/device/token",
         json={"device_code": device_code},
     )
     resp.raise_for_status()
@@ -303,12 +303,12 @@ def device_flow_poll(idp_url: str, device_code: str) -> PrincipalCredentials | N
 def direct_login(idp_url: str, name: str) -> PrincipalCredentials:
     """Dev mode: register/login without OAuth verification."""
     resp = httpx.post(
-        f"{idp_url}/aip/auth/login",
+        f"{idp_url}/agentid/auth/login",
         json={"external_id": name},
     )
     if resp.status_code == 404:
         resp = httpx.post(
-            f"{idp_url}/aip/auth/register",
+            f"{idp_url}/agentid/auth/register",
             json={"type": "human", "name": name, "external_id": name},
         )
     resp.raise_for_status()

@@ -9,7 +9,7 @@ from .identity import Identity
 
 
 class Client:
-    """HTTP client that automatically manages AIP token acquisition."""
+    """HTTP client that automatically manages AgentID token acquisition."""
 
     def __init__(
         self,
@@ -41,7 +41,7 @@ class Client:
         signature = self._identity.sign_token_request(audience, timestamp)
 
         resp = await self._http.post(
-            f"{self._identity.idp_url}/aip/token",
+            f"{self._identity.idp_url}/agentid/token",
             json={
                 "agent_id": self._identity.agent_id,
                 "kid": self._identity.kid,
@@ -66,7 +66,7 @@ class Client:
         url: str,
         **kwargs,
     ) -> httpx.Response:
-        """Send an HTTP request with an ``Authorization: AIP`` header.
+        """Send an HTTP request with an ``Authorization: Bearer`` header.
 
         The audience is derived from the URL origin unless a default was set.
         On a 401 response the token is refreshed and the request retried once.
@@ -75,7 +75,7 @@ class Client:
         token = await self.get_token(audience)
 
         headers = kwargs.pop("headers", {}) or {}
-        headers["Authorization"] = f"AIP {token}"
+        headers["Authorization"] = f"Bearer {token}"
         kwargs["headers"] = headers
 
         resp = await self._http.request(method, url, **kwargs)
@@ -84,7 +84,7 @@ class Client:
             # Invalidate cache and retry once.
             self._token_cache.pop(audience, None)
             token = await self.get_token(audience)
-            kwargs["headers"]["Authorization"] = f"AIP {token}"
+            kwargs["headers"]["Authorization"] = f"Bearer {token}"
             resp = await self._http.request(method, url, **kwargs)
 
         return resp

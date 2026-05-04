@@ -46,7 +46,7 @@ def _build_verifier(**kwargs) -> Verifier:
     )
     # Pre-seed activity_endpoint so report_event doesn't fail on lookup.
     v._activity_endpoint_cache[PROVIDER_DOMAIN] = (
-        "https://activity.example.com/aip/activity"
+        "https://activity.example.com/agentid/activity"
     )
     return v
 
@@ -252,7 +252,7 @@ class TestAutoEmitOnVerify:
             time.time(),
         )
         verifier._activity_endpoint_cache[PROVIDER_DOMAIN] = (
-            "https://activity.example.com/aip/activity"
+            "https://activity.example.com/agentid/activity"
         )
 
         token = pyjwt.encode(

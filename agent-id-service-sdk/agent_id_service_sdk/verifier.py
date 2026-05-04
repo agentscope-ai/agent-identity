@@ -142,7 +142,7 @@ class Verifier:
             if activity_endpoint:
                 # Apply provider_url override if set (local-dev URL rewriting).
                 if provider_domain in self._provider_urls:
-                    path = urlparse(activity_endpoint).path or "/aip/activity"
+                    path = urlparse(activity_endpoint).path or "/agentid/activity"
                     activity_endpoint = f"{base}{path}"
                 self._activity_endpoint_cache[provider_domain] = activity_endpoint
 

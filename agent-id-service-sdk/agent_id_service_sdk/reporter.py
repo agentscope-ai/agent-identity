@@ -18,10 +18,10 @@ class ActivityReporter:
     """Reports agent activity to an AIP activity tracker, signed with Ed25519.
 
     DEPRECATED: this implements the legacy hub-signed session-attestation flow
-    (POST /aip/reports). The new event-roll-up design replaces it with
-    `Verifier.report_event` (granular events POSTed to /aip/activity;
-    server-side aggregation produces session attestations). Will be removed
-    in the next minor release.
+    (POST /aip/reports). That route is no longer served by aip-activity. The
+    new event-roll-up design replaces it with `Verifier.report_event`
+    (granular events POSTed to /agentid/activity; server-side aggregation
+    produces session attestations). Will be removed in the next minor release.
     """
 
     def __init__(

@@ -34,7 +34,7 @@ TIER1_CATEGORIES: frozenset[str] = frozenset(
 
 @dataclass
 class ActivityEvent:
-    """Wire shape for events posted to aip-activity's POST /aip/activity.
+    """Wire shape for events posted to aip-activity's POST /agentid/activity.
 
     Matches aip-activity/app/routes/activity.py's Pydantic model. No client-
     side validation; the server is the source of truth.
