@@ -233,9 +233,31 @@ hub's published JWKS at `manifest.jwks_url`.
   "aud": "<aip-activity origin>",   // the receiving service's origin
   "iat": <unix-seconds>,            // when the envelope was signed
   "jti": "<128-bit-random-hex>",    // nonce, unique per request
-  "body_sha256": "<lowercase-hex>"  // sha256 of the raw request body
+  "body_sha256": "<lowercase-hex>", // sha256 of the raw request body
+  "privacy": {                      // optional; hub's privacy posture
+    "default_level": "summary",     //   for events in this request
+    "category_overrides": {         //   absent → activity service treats
+      "transfer.value": "full"      //   default_level as "summary"
+    }
+  }
 }
 ```
+
+The `privacy` claim is the hub's policy applied to events in this
+request. The hub asserts it within the same envelope it signs — no
+separate IdP-issued token needed. This replaces the prior
+`X-AgentID-Token` header path for hub-emitted events: the hub *is* its
+`service_id` (per §5), so its policy claims travel with its signed
+envelope, not as a separately-issued JWT.
+
+`privacy.default_level` MUST be one of `full | summary | existence | none`
+(matching the activity service's privacy enforcement levels). When the
+claim is omitted the activity service treats the events at
+`default_level=summary` — the conservative default.
+
+`category_overrides` is a map of `category → level` for per-category
+posture (e.g., a hub may keep `transfer.value` at `full` for audit
+while keeping `tool.use` at `summary` for operational privacy).
 
 **Verifier obligations** (`aip-activity`):
 1. Parse the JWS, extract `iss` from the payload and `kid` from the

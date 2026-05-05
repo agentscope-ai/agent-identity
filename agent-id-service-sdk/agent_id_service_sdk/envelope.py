@@ -83,6 +83,7 @@ def sign_envelope(
     algorithm: Literal["EdDSA", "ES256"] = "EdDSA",
     iat: int | None = None,
     jti: str | None = None,
+    privacy: dict[str, Any] | None = None,
 ) -> str:
     """Sign an outer envelope for one ``POST /agentid/activity`` request.
 
@@ -99,6 +100,11 @@ def sign_envelope(
             to ``time.time()``.
         jti: Override the nonce (testing only). Defaults to
             ``secrets.token_hex(16)``.
+        privacy: Optional hub privacy claim — ``{"default_level": ...,
+            "category_overrides": {...}}``. The hub asserts its posture
+            within the envelope; the activity service applies it to all
+            events in this request. Replaces the prior X-AgentID-Token
+            forwarding path for hub-emitted events.
 
     Returns:
         Compact JWS string, ready for ``Authorization: HubJWS <jws>``.
@@ -117,6 +123,8 @@ def sign_envelope(
         "jti": jti if jti is not None else secrets.token_hex(16),
         "body_sha256": _body_sha256(body),
     }
+    if privacy is not None:
+        claims["privacy"] = privacy
     return pyjwt.encode(
         claims,
         private_key,

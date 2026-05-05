@@ -65,6 +65,7 @@ class Verifier:
         hub_signing_key: Any = None,
         hub_signing_kid: str | None = None,
         hub_service_id: str | None = None,
+        hub_privacy_claim: dict[str, Any] | None = None,
     ) -> None:
         self._trusted_providers = [_normalise_domain(p) for p in trusted_providers]
         self._audience = audience
@@ -96,6 +97,10 @@ class Verifier:
         self._hub_signing_key = hub_signing_key
         self._hub_signing_kid = hub_signing_kid
         self._hub_service_id = hub_service_id
+        # Hub privacy claim (design §5.0): the hub asserts its policy
+        # within the signed envelope. None → activity service applies
+        # the conservative ``summary`` default.
+        self._hub_privacy_claim = hub_privacy_claim
 
         # Lazily-initialized async resources. Created on first emit so the
         # verifier can be constructed outside an event loop.
@@ -500,13 +505,17 @@ class Verifier:
                     iss=self._hub_service_id,  # type: ignore[arg-type]
                     aud=endpoint,
                     body=body,
+                    privacy=self._hub_privacy_claim,
                 )
                 headers = {
                     "Authorization": f"{AUTHORIZATION_SCHEME} {jws}",
                     "Content-Type": "application/json",
                 }
-                if self._agent_token_for_emit:
-                    headers["X-AgentID-Token"] = self._agent_token_for_emit
+                # Note: X-AgentID-Token is not set for hub emissions per
+                # design §5.0 — the hub's privacy claim now travels in
+                # the signed envelope. agent_token_for_emit remains in
+                # the constructor signature for legacy callers but is
+                # no longer used on outbound emissions.
                 resp = await self._emit_client.post(
                     endpoint,
                     headers=headers,

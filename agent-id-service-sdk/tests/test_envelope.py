@@ -150,6 +150,83 @@ class TestRoundTrip:
         assert claims["body_sha256"]
         assert claims["jti"]
         assert claims["iat"] > 0
+        # Privacy claim absent when signer doesn't supply one.
+        assert "privacy" not in claims
+
+
+class TestPrivacyClaim:
+    """Hub privacy posture travels in the envelope (design §5.0).
+
+    Replaces the prior X-AgentID-Token forwarding path: the hub asserts
+    its policy in the signed envelope, no separate IdP-issued token
+    needed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_privacy_claim_round_trips(self, keypair, resolver, replay_cache):
+        private_key, _ = keypair
+        body = b"{}"
+        privacy = {
+            "default_level": "summary",
+            "category_overrides": {"transfer.value": "full"},
+        }
+        jws = sign_envelope(
+            private_key=private_key,
+            kid=KID,
+            iss=HUB_ISS,
+            aud=ACTIVITY_AUD,
+            body=body,
+            privacy=privacy,
+        )
+        claims = await verify_envelope(
+            jws=jws,
+            body=body,
+            expected_aud=ACTIVITY_AUD,
+            resolve_jwks_for_iss=resolver,
+            replay_cache=replay_cache,
+        )
+        assert claims["privacy"] == privacy
+
+    @pytest.mark.asyncio
+    async def test_privacy_claim_is_signed(self, keypair, resolver, replay_cache):
+        """The claim is part of the JWS payload — tampering breaks the
+        signature, just like any other claim."""
+        import jwt as pyjwt
+
+        private_key, _ = keypair
+        body = b"{}"
+        jws = sign_envelope(
+            private_key=private_key,
+            kid=KID,
+            iss=HUB_ISS,
+            aud=ACTIVITY_AUD,
+            body=body,
+            privacy={"default_level": "summary"},
+        )
+        # Decode unsigned, mutate, re-encode without re-signing — should
+        # fail signature verify.
+        header = pyjwt.get_unverified_header(jws)
+        payload = pyjwt.decode(jws, options={"verify_signature": False})
+        payload["privacy"] = {"default_level": "full"}  # tamper
+        # Re-encode with a *different* key — same as a real attack.
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        attacker_key = Ed25519PrivateKey.generate()
+        tampered = pyjwt.encode(
+            payload, attacker_key, algorithm="EdDSA", headers=header
+        )
+        from agent_id_service_sdk.envelope import EnvelopeSignatureError
+
+        with pytest.raises(EnvelopeSignatureError):
+            await verify_envelope(
+                jws=tampered,
+                body=body,
+                expected_aud=ACTIVITY_AUD,
+                resolve_jwks_for_iss=resolver,
+                replay_cache=replay_cache,
+            )
 
 
 # ---------------------------------------------------------------------------
