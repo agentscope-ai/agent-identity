@@ -38,7 +38,30 @@ def _make_agent() -> VerifiedAgent:
     )
 
 
+_HUB_KEY = None
+
+
+def _hub_key_lazy():
+    """Cached Ed25519 keypair for tests; we don't need a fresh one per test."""
+    global _HUB_KEY
+    if _HUB_KEY is None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        _HUB_KEY = Ed25519PrivateKey.generate()
+    return _HUB_KEY
+
+
 def _build_verifier(**kwargs) -> Verifier:
+    # Tests previously passed `activity_api_key="fake"` to flip the
+    # "reporting enabled" gate. With HubJWS-only auth, reporting needs
+    # hub_signing_key + kid + service_id. Translate the legacy kwarg.
+    if kwargs.pop("activity_api_key", None) is not None:
+        kwargs.setdefault("hub_signing_key", _hub_key_lazy())
+        kwargs.setdefault("hub_signing_kid", "test-hub-key")
+        kwargs.setdefault("hub_service_id", "https://test-hub.example.com")
+
     v = Verifier(
         trusted_providers=[PROVIDER_DOMAIN],
         audience=AUDIENCE,
@@ -263,7 +286,9 @@ class TestAutoEmitOnVerify:
         verifier = Verifier(
             trusted_providers=[PROVIDER_DOMAIN],
             audience=AUDIENCE,
-            activity_api_key="fake",
+            hub_signing_key=_hub_key_lazy(),
+            hub_signing_kid="test-hub-key",
+            hub_service_id="https://test-hub.example.com",
             report_auto_verify=True,
             service_name="my-hub",
         )
@@ -301,7 +326,9 @@ class TestAutoEmitOnVerify:
         verifier = Verifier(
             trusted_providers=[PROVIDER_DOMAIN],
             audience=AUDIENCE,
-            activity_api_key="fake",
+            hub_signing_key=_hub_key_lazy(),
+            hub_signing_kid="test-hub-key",
+            hub_service_id="https://test-hub.example.com",
             report_auto_verify=False,  # default
         )
         verifier._jwks_cache[PROVIDER_DOMAIN] = (

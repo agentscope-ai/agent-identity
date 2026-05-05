@@ -20,6 +20,18 @@ from .manifest import (
     WELL_KNOWN_JWKS_PATH,
     WELL_KNOWN_MANIFEST_PATH,
 )
+from .envelope import (
+    AUTHORIZATION_SCHEME,
+    EnvelopeBodyMismatchError,
+    EnvelopeMalformedError,
+    EnvelopeReplayError,
+    EnvelopeSignatureError,
+    EnvelopeSigningError,
+    EnvelopeSkewError,
+    EnvelopeVerificationError,
+    sign_envelope,
+    verify_envelope,
+)
 from .manifest_signing import (
     ManifestSigningError,
     build_manifest,
@@ -55,6 +67,16 @@ __all__ = [
     "generate_signing_keypair",
     "public_key_to_jwk",
     "sign_manifest",
+    "AUTHORIZATION_SCHEME",
+    "EnvelopeBodyMismatchError",
+    "EnvelopeMalformedError",
+    "EnvelopeReplayError",
+    "EnvelopeSignatureError",
+    "EnvelopeSigningError",
+    "EnvelopeSkewError",
+    "EnvelopeVerificationError",
+    "sign_envelope",
+    "verify_envelope",
 ]
 
 # v0.1 compatibility aliases — to be removed in v1.0.

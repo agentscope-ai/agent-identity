@@ -186,16 +186,16 @@ This is **the JWKS pattern with one extra hop** (manifest → categories → sch
 `deferred-work.md §2` flagged that hubs currently authenticate to
 `aip-activity` with two secrets — a static hub bearer key plus the
 agent's forwarded JWT. With manifest-based discovery, the static hub
-key can go away. The replacement uses two cryptographic signatures and
+key goes away. The replacement uses two cryptographic signatures and
 no out-of-band material.
 
-**Proposed model:**
+**Model:**
 
 | Layer | Authenticates | Mechanism |
 |---|---|---|
 | Hub identity | The emitting service | `service_id` (= JWT `aud`) is in `aip-activity`'s `trusted_hub_origins` list. Trust anchor is the hub's domain + its self-published JWKS. |
-| Submission proof | Hub possesses (not just observed) the agent's token | The hub signs an *outer envelope* with one of its own keys (Ed25519/ES256, published in its `jwks_url`). The outer envelope wraps `{events, agent_token}` and is sent as `Authorization: AIP <hub_jws>`. |
-| Agent identity | The agent itself | Inner agent JWT in the envelope, verified against the issuing IdP's JWKS as today. |
+| Submission proof | Hub possesses (not just observed) the request | The hub signs an *outer envelope* with one of its own keys (Ed25519/ES256, published in its `jwks_url`). Sent as `Authorization: HubJWS <compact-jws>`. |
+| Agent identity | The agent itself | Inner agent JWT in `X-AgentID-Token`, verified against the issuing IdP's JWKS as today. |
 
 Both signatures are cryptographic. The hub key is *not* an AgentID —
 it's just a key the hub publishes at its own `.well-known/agent-id-jwks`,
@@ -203,7 +203,78 @@ structurally identical to how IdPs publish their signing keys. Key
 rotation reduces to "publish a new key in your JWKS, sign with it next
 time" — the same flow IdPs already do.
 
-`DAIL_AGENT_ACTIVITY_API_KEYS` deprecates.
+The legacy `DAIL_AGENT_ACTIVITY_API_KEYS` mechanism is removed in this
+version. Adopters integrating against a v1 `aip-activity` use only the
+HubJWS path described here.
+
+### 5.0 Outer envelope wire format
+
+The outer envelope is a standard JWS (RFC 7515) in **compact
+serialization**, presented in the `Authorization` header with the
+scheme `HubJWS`:
+
+```
+Authorization: HubJWS <base64url-header>.<base64url-payload>.<base64url-sig>
+```
+
+**JWS protected header:**
+```json
+{ "alg": "EdDSA", "kid": "<hub-key-id>", "typ": "hub-envelope+jws" }
+```
+
+`alg` MUST be `EdDSA` (Ed25519) or `ES256` (ECDSA P-256) — the same
+set the manifest signing accepts. `kid` MUST resolve to a key in the
+hub's published JWKS at `manifest.jwks_url`.
+
+**JWS payload (claims):**
+```json
+{
+  "iss": "<hub service_id>",        // = manifest.service_id
+  "aud": "<aip-activity origin>",   // the receiving service's origin
+  "iat": <unix-seconds>,            // when the envelope was signed
+  "jti": "<128-bit-random-hex>",    // nonce, unique per request
+  "body_sha256": "<lowercase-hex>"  // sha256 of the raw request body
+}
+```
+
+**Verifier obligations** (`aip-activity`):
+1. Parse the JWS, extract `iss` from the payload and `kid` from the
+   header. Reject if either is missing or if `iss` is not in
+   `trusted_hub_origins`.
+2. Resolve the hub's JWKS via `HubManifestFetcher.fetch(iss).jwks_url`,
+   look up `kid`. Reject on miss with one forced JWKS refresh.
+3. Verify the JWS signature.
+4. Compute `sha256(raw_request_body)` (lowercase hex). Reject if it
+   doesn't match `body_sha256` in the claims.
+5. Reject if `|now - iat| > 60s` (skew window).
+6. Reject if `jti` is in the replay cache. Otherwise, insert with a
+   120s TTL (slightly larger than the skew window so legitimate retries
+   land outside it).
+7. On success, the authenticated principal is the value of `iss`. The
+   hub's `service_id` becomes the audit identity for everything in the
+   request body.
+
+**Signer obligations** (the hub):
+1. Compute `sha256(body)` of the JSON request body bytes you're about
+   to send (no canonicalization — the verifier hashes the same bytes).
+2. Build the claims with `iss = service_id`, `aud = activity_endpoint`,
+   `iat = now`, `jti = secrets.token_hex(16)`, `body_sha256 = <hex>`.
+3. Sign as compact JWS using the hub's private key + `kid`.
+4. Send `POST <activity_endpoint>` with `Authorization: HubJWS <jws>`,
+   `Content-Type: application/json`, the body bytes whose hash you
+   committed to.
+
+**Retry policy:** retries reuse the same `jti` and `body_sha256`. The
+verifier's replay cache becomes the natural idempotency key — a retry
+arriving inside the cache window is rejected with 409 (or accepted as a
+no-op, implementation choice — `aip-activity` chooses 409 to surface
+client-side bugs). Outside the cache window, the request must be
+re-signed with a fresh `iat` and `jti`.
+
+**No detached payload, no canonicalization gymnastics, no extra
+headers.** Standard JWS, standard JWT-style claims, body integrity via
+hash-in-claims rather than signing-the-body-directly. Trades 32 bytes
+of overhead for "any JOSE library in any language can implement this."
 
 ### 5.1 Hub trust list (the v1 trust mechanism)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -53,7 +54,6 @@ class Verifier:
         clock_skew_seconds: int = 30,
         provider_urls: dict[str, str] | None = None,
         # --- activity reporting (all optional; reporting opt-in) ---
-        activity_api_key: str | None = None,
         activity_endpoint: str | None = None,
         event_categories: set[str] | None = None,
         no_report_paths: set[str] | None = None,
@@ -61,6 +61,10 @@ class Verifier:
         hub_namespace: str | None = None,
         report_auto_verify: bool = False,
         agent_token_for_emit: str | None = None,
+        # --- hub-signed envelope auth (replaces activity_api_key, design §5.0) ---
+        hub_signing_key: Any = None,
+        hub_signing_kid: str | None = None,
+        hub_service_id: str | None = None,
     ) -> None:
         self._trusted_providers = [_normalise_domain(p) for p in trusted_providers]
         self._audience = audience
@@ -74,17 +78,24 @@ class Verifier:
         self._activity_endpoint_cache: dict[str, str] = {}
 
         # --- activity-reporting state ---
-        self._activity_api_key = activity_api_key
         self._activity_endpoint_override = activity_endpoint
         self._event_categories = event_categories  # None = no filter
         self._no_report_paths = no_report_paths or set()
         self._service_name = service_name
         self._hub_namespace = hub_namespace
         self._report_auto_verify = report_auto_verify
-        # The hub's own agent token (forwarded as X-AIP-Token); without this,
-        # aip-activity will reject events as the principal-policy claim is
-        # unverifiable. Optional — emit just logs and drops if missing.
+        # The hub's own agent token (forwarded as X-AgentID-Token); without
+        # this, aip-activity will reject events as the principal-policy
+        # claim is unverifiable. Optional — emit just logs and drops if
+        # missing.
         self._agent_token_for_emit = agent_token_for_emit
+        # Hub-signed envelope (design §5.0): replaces the legacy static
+        # activity_api_key. Reporting is enabled iff all three are set.
+        # The signing key signs each POST body; the public key in the
+        # hub's JWKS verifies it server-side.
+        self._hub_signing_key = hub_signing_key
+        self._hub_signing_kid = hub_signing_kid
+        self._hub_service_id = hub_service_id
 
         # Lazily-initialized async resources. Created on first emit so the
         # verifier can be constructed outside an event loop.
@@ -300,7 +311,7 @@ class Verifier:
         )
 
         # Auto-emit auth.verify if configured. Best-effort, never raises.
-        if self._report_auto_verify and self._activity_api_key:
+        if self._report_auto_verify and self._reporting_enabled():
             route = (request_context or {}).get("route")
             try:
                 await self.report_event(
@@ -356,7 +367,7 @@ class Verifier:
             )
             return
 
-        if not self._activity_api_key:
+        if not self._reporting_enabled():
             # Reporting not configured; silently no-op.
             return
 
@@ -459,23 +470,47 @@ class Verifier:
         if self._emit_drain_task is None or self._emit_drain_task.done():
             self._emit_drain_task = asyncio.create_task(self._drain_emitter())
 
+    def _reporting_enabled(self) -> bool:
+        """Reporting requires a hub-signing key + kid + service_id (design §5.0)."""
+        return bool(
+            self._hub_signing_key and self._hub_signing_kid and self._hub_service_id
+        )
+
     async def _drain_emitter(self) -> None:
-        """Pull queued events and POST them. Survives transport errors."""
+        """Pull queued events and POST them. Survives transport errors.
+
+        Each request body is signed with the hub's Ed25519 / ES256 key
+        (design §5.0). The activity service verifies the envelope against
+        the hub's published JWKS — no shared bearer secret involved.
+        """
+        from .envelope import AUTHORIZATION_SCHEME, sign_envelope  # noqa: PLC0415
+
         assert self._emit_queue is not None
         assert self._emit_client is not None
         while True:
             evt, endpoint = await self._emit_queue.get()
             try:
+                # Body is JSON-serialized once; the hash in the envelope
+                # commits to *these* bytes, so the verifier must hash the
+                # same bytes. Don't reformat between sign and POST.
+                body = json.dumps({"events": [evt.to_dict()]}).encode("utf-8")
+                jws = sign_envelope(
+                    private_key=self._hub_signing_key,
+                    kid=self._hub_signing_kid,  # type: ignore[arg-type]
+                    iss=self._hub_service_id,  # type: ignore[arg-type]
+                    aud=endpoint,
+                    body=body,
+                )
                 headers = {
-                    "Authorization": f"Bearer {self._activity_api_key}",
+                    "Authorization": f"{AUTHORIZATION_SCHEME} {jws}",
                     "Content-Type": "application/json",
                 }
                 if self._agent_token_for_emit:
-                    headers["X-AIP-Token"] = self._agent_token_for_emit
+                    headers["X-AgentID-Token"] = self._agent_token_for_emit
                 resp = await self._emit_client.post(
                     endpoint,
                     headers=headers,
-                    json={"events": [evt.to_dict()]},
+                    content=body,
                 )
                 if resp.status_code >= 400:
                     logger.warning(
