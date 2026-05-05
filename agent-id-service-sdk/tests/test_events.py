@@ -92,6 +92,26 @@ class TestCategoryTier:
         for cat in TIER1_CATEGORIES:
             assert category_tier(cat) == 1
 
+    @pytest.mark.parametrize(
+        "cat",
+        [
+            "approval.requested",
+            "approval.granted",
+            "approval.denied",
+            "delegation.granted",
+            "delegation.revoked",
+        ],
+    )
+    def test_approval_and_delegation_are_tier1(self, cat):
+        # These look like Tier-2 (namespaced) but are reserved Tier-1
+        # categories. Tier-1 lookup wins before the namespace check.
+        assert cat in TIER1_CATEGORIES
+        assert category_tier(cat) == 1
+        # Even when the caller declares a hub namespace, Tier-1 still
+        # short-circuits — reserves these prefixes against squatting.
+        assert category_tier(cat, hub_namespace="approval") == 1
+        assert category_tier(cat, hub_namespace="delegation") == 1
+
     def test_tier2_namespace_match(self):
         assert category_tier("dojozero.bet", hub_namespace="dojozero") == 2
 

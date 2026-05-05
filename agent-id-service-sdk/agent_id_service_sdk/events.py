@@ -16,18 +16,30 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-# Tier 1 — protocol categories. Cross-hub aggregable. Schema enforced server-side.
+# Tier 1 — protocol categories. Cross-hub aggregable. Schema enforced
+# server-side (`aip-activity/app/schemas/categories.py`). Standardised-
+# when-emitted, not emitted-everywhere — a hub without an economy never
+# fires `transfer.value`, that's expected.
 TIER1_CATEGORIES: frozenset[str] = frozenset(
     {
+        # Universal lifecycle — fires on any agent regardless of hub class.
         "auth.verify",
         "auth.deny",
+        "session.start",
+        "session.end",
+        # Domain-flavored — fires only on hubs in the matching domain.
         "model.call",
         "tool.use",
         "data.read",
         "data.write",
         "transfer.value",
-        "session.start",
-        "session.end",
+        # Approval workflow (see 2026-03-25-agentid.en.md §7.4).
+        "approval.requested",
+        "approval.granted",
+        "approval.denied",
+        # Delegation lifecycle (see 2026-03-25-agentid.en.md §4.4 / §7.4).
+        "delegation.granted",
+        "delegation.revoked",
     }
 )
 

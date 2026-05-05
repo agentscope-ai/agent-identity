@@ -273,9 +273,14 @@ is rejected with a clear error. Manual operator override exists in
 `aip-activity` for trademark/dispute cases (rare, expected to be near
 zero).
 
-**Reserved prefixes.** `aip.*`, `agentid.*`, `tier1.*` MUST NOT be
-claimed as Tier-2 namespaces — even by a hub at `aip.example.com`.
-These are reserved for protocol evolution.
+**Reserved prefixes.** `aip.*`, `agentid.*`, `tier1.*`, `approval.*`,
+and `delegation.*` MUST NOT be claimed as Tier-2 namespaces — even by
+a hub at `aip.example.com`. The first three are reserved for protocol
+evolution; `approval.*` and `delegation.*` are reserved because they're
+Tier-1 categories (per §9.5) and Tier-1 lookup short-circuits Tier-2
+namespace resolution. The SDK's `category_tier()` enforces this — a hub
+declaring `hub_namespace="approval"` and emitting `approval.requested`
+gets tier 1 (not the hub's tier 2), as it should.
 
 ## 7. Schema versioning
 
