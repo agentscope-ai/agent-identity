@@ -18,6 +18,8 @@ from agent_id_service_sdk.manifest import HubManifestFetcher
 from agent_id_service_sdk.manifest_signing import (
     ManifestSigningError,
     build_manifest,
+    generate_signing_keypair,
+    public_key_to_jwk,
     sign_manifest,
 )
 
@@ -188,3 +190,59 @@ async def test_round_trip_sign_then_verify_via_fetcher():
     assert verified.jwks_url == JWKS_URL
     assert verified.attested_by == "agentid:pre.agent-id.live:org_dojozero"
     assert verified.aip_version == "0.1"
+
+
+# ---------------------------------------------------------------------------
+# public_key_to_jwk + generate_signing_keypair
+# ---------------------------------------------------------------------------
+
+
+class TestPublicKeyToJwk:
+    def test_canonical_jwk_shape(self):
+        private_key = Ed25519PrivateKey.generate()
+        jwk = public_key_to_jwk(private_key.public_key(), "my-kid")
+        assert jwk["kty"] == "OKP"
+        assert jwk["crv"] == "Ed25519"
+        assert jwk["kid"] == "my-kid"
+        # base64url-no-pad of 32 bytes raw key → 43 chars
+        assert len(jwk["x"]) == 43
+        assert "=" not in jwk["x"]
+
+
+class TestGenerateSigningKeypair:
+    def test_default_kid(self):
+        private_key, jwk, pem = generate_signing_keypair()
+        assert isinstance(private_key, Ed25519PrivateKey)
+        assert jwk["kid"] == "hub-key-1"
+        assert "BEGIN PRIVATE KEY" in pem
+        assert "END PRIVATE KEY" in pem
+
+    def test_jwk_matches_private_key(self):
+        private_key, jwk, _ = generate_signing_keypair(kid="x")
+        # The JWK we hand back must encode the *same* public key the
+        # private key produces — otherwise hubs serve a JWKS that
+        # doesn't verify their own signatures.
+        derived = public_key_to_jwk(private_key.public_key(), "x")
+        assert derived == jwk
+
+    def test_keypair_can_sign_and_verify_via_fetcher(self):
+        """Capstone: keypair → sign manifest → JWKS round-trip works.
+        If this passes, an adopter using only the SDK helpers can
+        publish a manifest that ``HubManifestFetcher`` will accept."""
+        private_key, jwk, _ = generate_signing_keypair(kid="adopter-key")
+        manifest = build_manifest(
+            service_id=SERVICE_ID,
+            namespace=NAMESPACE,
+            categories_url=CATEGORIES_URL,
+            jwks_url=JWKS_URL,
+        )
+        jws = sign_manifest(manifest, private_key=private_key, kid="adopter-key")
+        assert jws.count(".") == 2
+        # The published JWKS doc consumes the same encoding.
+        assert jwk["kid"] == "adopter-key"
+        assert jwk["kty"] == "OKP"
+
+    def test_each_call_produces_distinct_keys(self):
+        _, _, pem_a = generate_signing_keypair()
+        _, _, pem_b = generate_signing_keypair()
+        assert pem_a != pem_b

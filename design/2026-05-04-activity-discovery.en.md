@@ -101,6 +101,29 @@ keys live at `jwks_url`; that's the whole identity story. The
 `attested_by` field is the only place an AgentID-formatted principal
 appears, and it's optional, denoting org accountability.
 
+#### 3.1.1 JWKS shape
+
+The document at `jwks_url` is a standard **JWK Set** (RFC 7517 §5)
+containing the hub's manifest-signing keys. Two key types are accepted,
+matching the manifest signing algorithms:
+
+- **Ed25519 (EdDSA)** per RFC 8037 §2:
+  `{"kty": "OKP", "crv": "Ed25519", "kid": <id>, "x": <b64url-no-pad of the 32-byte raw public key>}`
+- **ECDSA P-256 (ES256)** per RFC 7518 §6.2:
+  `{"kty": "EC", "crv": "P-256", "kid": <id>, "x": <b64url>, "y": <b64url>}`
+
+`kid` MUST be present on every key and MUST match the `kid` header of
+the JWS the hub publishes at `/.well-known/agent-id-activity-manifest`.
+Base64url encoding is RFC 7515 §2 — URL-safe alphabet, no padding. No
+fields beyond what's spec'd here are inspected by `aip-activity`;
+adopters MAY include standard JWK metadata (`use`, `alg`, `key_ops`)
+but they have no protocol meaning at the manifest layer.
+
+A non-Python implementer can produce a valid JWKS with any JOSE library
+or `openssl genpkey -algorithm ed25519` plus base64url encoding of
+`openssl pkey -pubout -outform DER` — there is nothing AIP-specific
+about the encoding.
+
 ### 3.2 The categories doc
 
 ```json

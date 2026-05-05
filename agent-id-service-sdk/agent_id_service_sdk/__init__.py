@@ -23,6 +23,8 @@ from .manifest import (
 from .manifest_signing import (
     ManifestSigningError,
     build_manifest,
+    generate_signing_keypair,
+    public_key_to_jwk,
     sign_manifest,
 )
 
@@ -50,6 +52,8 @@ __all__ = [
     "CategoriesDoc",
     "ManifestSigningError",
     "build_manifest",
+    "generate_signing_keypair",
+    "public_key_to_jwk",
     "sign_manifest",
 ]
 
