@@ -39,6 +39,10 @@ from .manifest_signing import (
     public_key_to_jwk,
     sign_manifest,
 )
+from .namespace_ownership import (
+    NamespaceOwnershipError,
+    verify_namespace_ownership,
+)
 
 __all__ = [
     "Verifier",
@@ -77,6 +81,8 @@ __all__ = [
     "EnvelopeVerificationError",
     "sign_envelope",
     "verify_envelope",
+    "NamespaceOwnershipError",
+    "verify_namespace_ownership",
 ]
 
 # v0.1 compatibility aliases — to be removed in v1.0.
