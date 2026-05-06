@@ -499,11 +499,16 @@ class Verifier:
                 # commits to *these* bytes, so the verifier must hash the
                 # same bytes. Don't reformat between sign and POST.
                 body = json.dumps({"events": [evt.to_dict()]}).encode("utf-8")
+                # `aud` is the activity service's origin (envelope.py:94),
+                # not the full POST URL — strip path/query so the receiver's
+                # `expected_aud` (its public origin) matches.
+                parsed = urlparse(endpoint)
+                aud_origin = f"{parsed.scheme}://{parsed.netloc}"
                 jws = sign_envelope(
                     private_key=self._hub_signing_key,
                     kid=self._hub_signing_kid,  # type: ignore[arg-type]
                     iss=self._hub_service_id,  # type: ignore[arg-type]
-                    aud=endpoint,
+                    aud=aud_origin,
                     body=body,
                     privacy=self._hub_privacy_claim,
                 )
