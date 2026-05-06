@@ -1,5 +1,6 @@
 from .identity import Identity
 from .client import Client
+from .profile import AgentConfig
 from .manage import (
     generate_keypair,
     compute_kid,
@@ -23,6 +24,7 @@ from .manage import (
 __all__ = [
     "Identity",
     "Client",
+    "AgentConfig",
     "generate_keypair",
     "compute_kid",
     "sign_token_request",
