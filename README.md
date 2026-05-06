@@ -128,6 +128,7 @@ make agent trade BTC/USD 1000 buy IDP=pre
 - [协议规格（中文）](design/2026-03-25-agent-identity-protocol.zh.md)
 - [Protocol Spec (English)](design/2026-03-25-agent-identity-protocol.en.md)
 - [IdP 实现指南](design/2026-03-31-idp-implementation-guide.zh.md)
+- [Hub Integration Guide](docs/hub-integration.md) — practical guide for services adopting the protocol (identity-only / activity-emitting / agent-accepting tiers)
 
 
 ## 相关工作
