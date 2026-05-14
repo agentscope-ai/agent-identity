@@ -120,7 +120,7 @@ python agent.py
 The demo hub implements a reference version of the authorization grant flow. The agent makes two purchases:
 
 1. **$49.99 "coffee"** — under the hub's `REQUIRES_APPROVAL_ABOVE = 500` threshold, proceeds autonomously.
-2. **$1299.00 "flight to NYC"** — over the threshold, hub returns `202 Accepted` with an `approval_id`. The agent polls `/aip/grants/{id}` until the principal approves or denies, then retries with `X-AIP-Grant: <grant_id>`.
+2. **$1299.00 "flight to NYC"** — over the threshold, hub returns `202 Accepted` with an `approval_id`. The agent polls `/agentid/approvals/{id}` until the principal approves or denies, then retries with `X-AgentID-Approval: <grant_id>`.
 
 ### Run the approval flow
 
@@ -131,7 +131,7 @@ cd examples/demo-agent
 python agent.py
 ```
 
-The agent will print an `approval_id` and begin polling. In a second terminal, act as the principal. `approve.py` lives next to the hub because approvals are hub-local (spec §7.6.3) — it calls the hub's `/aip/grants/*` endpoints, not the IdP:
+The agent will print an `approval_id` and begin polling. In a second terminal, act as the principal. `approve.py` lives next to the hub because approvals are hub-local (spec §7.6.3) — it calls the hub's `/agentid/approvals/*` endpoints, not the IdP:
 
 ```
 cd examples/demo-hub
@@ -150,11 +150,11 @@ The agent detects the approval, retries the purchase with the grant, and complet
 | 7.6.2 Grant request flow (202 + poll + retry) | `hub.py: /api/purchase`, `agent.py: purchase_with_approval` |
 | 7.6.3 Grant properties (time-limited, action-scoped, agent-bound, single-use) | `hub.py: Grant`, consumed in Path A |
 | 7.6.4 `notification_endpoint` on principal | `ref-idp` / `aip-idp` principal model + token claim; hub prints to console if endpoint is absent |
-| 7.6.6 Endpoints (`GET /aip/grants/{id}`, `POST /approve`, `POST /deny`, `GET /aip/grants`) | `hub.py` |
+| 7.6.6 Endpoints (`GET /agentid/approvals/{id}`, `POST /approve`, `POST /deny`, `GET /agentid/approvals`) | `hub.py` |
 
 ### Demo simplifications (not for production)
 
-- `/aip/grants/{id}/approve|deny` and `GET /aip/grants` are unauthenticated. A real hub would gate these behind a portal session tied to the principal.
+- `/agentid/approvals/{id}/approve|deny` and `GET /agentid/approvals` are unauthenticated. A real hub would gate these behind a portal session tied to the principal.
 - All grant state is in-memory; restart clears it.
 - The threshold is hardcoded on the hub. Per spec §7.4, a production hub would read `requires_confirmation_above` from the token's `delegation` claim.
 
@@ -170,16 +170,16 @@ The hub above owns approval state locally (Model 1). Enterprises often want appr
 
 ```
 Agent → Hub                   over-threshold purchase
-Hub  → IdP:/aip/approvals     forward request
+Hub  → IdP:/agentid/approvals forward request
 Hub  → Agent                  202 + approval_id
 IdP portal                    principal clicks "Approve" (auto-refreshed list)
 IdP                           signs JWT decision (kid from JWKS)
-Agent → Hub                   poll /aip/grants/{id}
-Hub  → IdP:/aip/approvals/{}  poll lazily
+Agent → Hub                   poll /agentid/approvals/{id}
+Hub  → IdP:/agentid/approvals/{}  poll lazily
 IdP  → Hub                    {status: approved, decision_jwt: ...}
 Hub verifies JWT vs JWKS, materializes local grant with constraints
 Hub  → Agent                  grant returned on next poll
-Agent → Hub                   retry with X-AIP-Grant → completed
+Agent → Hub                   retry with X-AgentID-Approval → completed
 ```
 
 ### Try it against aip-idp
@@ -198,7 +198,7 @@ When the agent hits the $1299 purchase, the hub's console will show:
 
 ```
 [discovery] approval mode: delegated (Model 3)
-[discovery] IdP approval endpoint: http://localhost:8000/aip/approvals
+[discovery] IdP approval endpoint: http://localhost:8000/agentid/approvals
 [delegate] IdP stored approval apr_xxxxxxxx (local id apr_yy)
 [notify → portal] IdP will surface apr_xxxxxxxx to <principal_id>
 ```
@@ -209,7 +209,7 @@ Open **http://localhost:5173/portal/approvals** — the request will appear with
 
 | Spec § | Implemented by |
 |---|---|
-| Discovery advertises `approval_endpoint` | `aip-idp: /.well-known/aip-configuration` |
+| Discovery advertises `approval_endpoint` | `aip-idp: /.well-known/agentid-configuration` |
 | Hub forwards decisions to IdP | `hub.py: _delegate_to_idp` |
 | IdP signs decision JWT | `aip-idp: create_approval_decision_token` |
 | Hub verifies decision JWT against JWKS | `hub.py: _verify_decision_jwt` |
@@ -217,7 +217,7 @@ Open **http://localhost:5173/portal/approvals** — the request will appear with
 
 ### Delegated-mode simplifications
 
-- No principal auth on the hub's `POST /aip/approvals` (the IdP accepts any hub's request and looks up the agent's principal). A production IdP would verify the hub itself (hub cert, mutual TLS, registered hub_id).
+- No principal auth on the hub's `POST /agentid/approvals` to the IdP (the IdP accepts any hub's request and looks up the agent's principal). A production IdP would verify the hub itself (hub cert, mutual TLS, registered hub_id).
 - The agent's polling of the hub triggers the hub's polling of the IdP (lazy fan-out). A production hub might use SSE or webhook callbacks instead.
 - In delegated mode, `approve.py` returns 409 if you try to use it — the demo refuses to mix modes per approval.
 

@@ -1,5 +1,5 @@
 """
-Demo: AIP agent with subcommands that exercise the approval workflow.
+Demo: AgentID agent with subcommands that exercise the approval workflow.
 
 Subcommands:
   whoami                             authenticate to the hub and print identity
@@ -9,7 +9,7 @@ Subcommands:
   demo                               run a scripted sequence (default)
 
 The agent's approval handling is the same for every command: on 202,
-poll the hub, retry with X-AIP-Grant once a grant is issued.
+poll the hub, retry with X-AgentID-Approval once a grant is issued.
 
 Identity is selected by AGENTID_IDP (default: "local"); see IDENTITY_PROFILES
 below for the available profiles. The hub must be started with the same
@@ -40,7 +40,7 @@ POLL_TIMEOUT_SECONDS = 300
 # Identity source per AGENTID_IDP profile.
 # "profile:<name>" loads ~/.agentid/agents/<name>/; "zip:<path>" loads a zip export.
 IDENTITY_PROFILES: dict[str, str] = {
-    "local": "profile:cli-agent-2",
+    "local": "profile:cli-agent",
     "pre": "zip:/Users/yilei.z/Downloads/pre-portal-agent.zip",
     "prod": "zip:/path/to/prod-agent.zip",
 }
@@ -75,6 +75,7 @@ async def execute_action(
 
     body = resp.json()
     approval_id = body["approval_id"]
+    poll_url = f"{HUB_URL}{body['poll_url']}"
     via = body.get("approval_via", "hub")
     note = body.get("threshold_exceeded", "approval required")
     print(f"  {note} (approval via {via})")
@@ -90,13 +91,13 @@ async def execute_action(
             f"    cd examples/demo-hub && python approve.py approve {approval_id}"
         )
 
-    grant_id = await _poll_for_grant(client, approval_id)
+    grant_id = await _poll_for_grant(client, poll_url)
     print(f"  grant issued: {grant_id} — retrying {label}")
 
     retry = await client.post(
         f"{HUB_URL}{path}",
         json=payload,
-        headers={"X-AIP-Grant": grant_id},
+        headers={"X-AgentID-Approval": grant_id},
     )
     if retry.status_code != 200:
         raise RuntimeError(f"retry failed: {retry.status_code} {retry.text}")
@@ -104,8 +105,7 @@ async def execute_action(
     return retry.json()
 
 
-async def _poll_for_grant(client: Client, approval_id: str) -> str:
-    poll_url = f"{HUB_URL}/aip/grants/{approval_id}"
+async def _poll_for_grant(client: Client, poll_url: str) -> str:
     deadline = asyncio.get_event_loop().time() + POLL_TIMEOUT_SECONDS
     while asyncio.get_event_loop().time() < deadline:
         resp = await client.get(poll_url)
@@ -119,7 +119,7 @@ async def _poll_for_grant(client: Client, approval_id: str) -> str:
         if status == "expired":
             raise RuntimeError("approval expired")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
-    raise TimeoutError(f"gave up waiting for approval {approval_id}")
+    raise TimeoutError(f"gave up waiting for approval at {poll_url}")
 
 
 def _new_identity() -> Identity:
@@ -228,7 +228,7 @@ async def cmd_demo(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AIP demo agent")
+    parser = argparse.ArgumentParser(description="AgentID demo agent")
     subparsers = parser.add_subparsers(dest="cmd")
 
     p_whoami = subparsers.add_parser(

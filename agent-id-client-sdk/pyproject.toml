@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-id-client-sdk"
-version = "0.2.1"
+version = "0.2.2"
 description = "AgentID — Client SDK for AI agents"
 license = "Apache-2.0"
 authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]
@@ -25,6 +25,7 @@ dependencies = [
     "httpx>=0.25",
     "cryptography>=41.0",
     "pyjwt[crypto]>=2.8",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

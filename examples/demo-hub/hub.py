@@ -1,5 +1,5 @@
 """
-Demo hub with AIP token verification and approval workflow, over three
+Demo hub with AgentID token verification and approval workflow, over three
 action endpoints to show different approval triggers:
 
 - POST /api/book-flight — amount-based threshold (e.g. > $500 needs approval)
@@ -422,16 +422,16 @@ def _approval_response(
 
 
 def _consume_grant(
-    x_aip_grant: str | None, agent, action: str, amount: float | None = None
+    x_agentid_approval: str | None, agent, action: str, amount: float | None = None
 ) -> Grant | None:
     """Validate and consume a presented grant for *action*. Returns the grant if valid.
 
     Raises 403 if presented but invalid. Returns None if no grant was presented
     (caller decides whether that's OK for the request).
     """
-    if not x_aip_grant:
+    if not x_agentid_approval:
         return None
-    grant = grants.get(x_aip_grant)
+    grant = grants.get(x_agentid_approval)
     if not grant:
         raise HTTPException(403, "Unknown grant")
     if grant.agent_id != agent.agent_id:
@@ -464,14 +464,14 @@ class BookFlightRequest(BaseModel):
 async def book_flight(
     body: BookFlightRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     agent = await get_agent(request)
     principal_id = agent.principal.get("id", "")
     balance = wallet_balance.setdefault(principal_id, STARTING_BALANCE)
     action = "flight.book"
 
-    grant = _consume_grant(x_aip_grant, agent, action, amount=body.amount)
+    grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
     if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
         wallet_balance[principal_id] = balance - body.amount
         return {
@@ -519,7 +519,7 @@ class DeleteFileRequest(BaseModel):
 async def delete_file(
     body: DeleteFileRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     """Destructive action — always requires approval, regardless of amount.
 
@@ -529,7 +529,7 @@ async def delete_file(
     agent = await get_agent(request)
     action = "file.delete"
 
-    grant = _consume_grant(x_aip_grant, agent, action)
+    grant = _consume_grant(x_agentid_approval, agent, action)
     if grant is not None:
         allowed_path = grant.constraints.get("path")
         if allowed_path and allowed_path != body.path:
@@ -573,14 +573,14 @@ class TradeRequest(BaseModel):
 async def trade(
     body: TradeRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     agent = await get_agent(request)
     principal_id = agent.principal.get("id", "")
     balance = wallet_balance.setdefault(principal_id, STARTING_BALANCE)
     action = "trade.execute"
 
-    grant = _consume_grant(x_aip_grant, agent, action, amount=body.amount)
+    grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
     if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
         if body.side == "buy":
             wallet_balance[principal_id] = balance - body.amount

@@ -6,15 +6,19 @@ This is the doc to read **first** if you're integrating a new service. The desig
 
 ## Who this is for
 
-You're integrating a service that wants to participate in AgentID. Pick a level:
+You're integrating a service that wants to participate in AgentID. The protocol's core unit is the **hub** — a service that both publishes a verifiable identity and accepts agents authenticated by trusted IdPs. Identity and acceptance are two halves of one JWS handshake: the issuer side proves who you are, the verifier side checks who your peers are. Either half on its own is degenerate — publishing a key without ever verifying tokens is "I exist" with no use; verifying tokens without a published identity makes you unaddressable. So Level 1 bundles them.
+
+This bundling is deliberate. Treating identity and acceptance as separate capabilities is the architectural mistake we critique in competing protocols: identity that nothing verifies against, and acceptance that anyone can claim. The two only make sense together.
+
+Activity emission and (when shipped) approval gating layer on top of a working hub.
 
 | Level | What you do | Reasonable effort |
 |---|---|---|
-| **Identity-only** | Publish a verifiable "this is me" claim. Other services can trust your namespace ownership. No agent acceptance, no activity events. | Half a day |
-| **Activity-emitting** | Above, plus emit signed activity events to an aip-activity service for audit/reputation. Most hubs land here. | 2–3 days |
-| **Agent-accepting** | Above, plus accept Bearer-JWT-authenticated agents and run them against your application. The DojoZero shape. | About a week |
+| **Hub (identity + acceptance)** | Publish your hub identity (manifest + JWKS) AND accept Bearer-JWT-authenticated agents from trusted IdPs. The minimum to participate as both attestation issuer and peer verifier. The DojoZero shape. | About a week |
+| **Activity emission** | Above, plus emit signed activity events to an aip-activity service for audit and cross-hub reputation. Most production hubs land here. | +2–3 days |
+| **Approval gating** *(preview)* | Above, plus gate high-risk actions through IdP-delegated approval (§7.6 thin grants, Model 3 — see `design/2026-04-23-approval-scenarios.en.md`). Designed; not yet shipped end-to-end in the SDK. | TBD |
 
-Each level subsumes the previous. Start at the level you need; you can grow into more later.
+Levels 2 and 3 build on Level 1. Pick the lowest level that meets your needs; you can grow into more later.
 
 ## Prerequisites
 
@@ -25,9 +29,9 @@ Each level subsumes the previous. Start at the level you need; you can grow into
 
 ---
 
-## Level 1 — Identity-only hub
+## Level 1 — Hub (identity + acceptance)
 
-Goal: any verifier can fetch `https://your-service/.well-known/agent-id-activity-manifest`, verify its signature, and confirm "yes, this service genuinely owns the namespace it claims."
+Goal: be a working hub. Publish your identity (manifest + JWKS) so peers can verify you, AND accept agents presenting Bearer JWTs from IdPs you trust. Both halves of the JWS handshake live here.
 
 ### 1.1 Mint a hub keypair
 
@@ -51,7 +55,18 @@ HUB_SERVICE_ID = "https://api.myservice.com"      # public origin, no trailing s
 HUB_NAMESPACE = "myservice"                        # must match service_id's eTLD+1
 HUB_KID = "prod-hub-key-1"
 HUB_PRIVATE_KEY_PEM = open(os.environ["HUB_KEY_PEM_PATH"]).read()
+
+# Trust list — IdPs whose tokens you'll accept at the verifier side.
+# Tokens from issuers not in this list are rejected. Add as you onboard
+# new IdPs; never auto-trust on first sight.
+TRUSTED_PROVIDERS = [
+    "qwenpaw.ai",
+    # "openclaw.ai",
+    # "internal-idp.mycompany.com",
+]
 ```
+
+For IdPs that aren't reachable at the conventional `https://<provider_domain>/.well-known/...` path (e.g., local dev), add a `provider_urls` mapping when constructing the Verifier in §1.4.
 
 ### 1.3 Mount the well-known endpoints
 
@@ -108,7 +123,73 @@ app = FastAPI()
 app.include_router(agentid_router)
 ```
 
-### 1.4 Smoke test
+### 1.4 Mount the verifier as an auth dependency
+
+The same `Verifier` class that signs your activity envelopes (Level 2) also handles inbound JWT verification. Construct one instance and reuse it for both:
+
+```python
+# myhub/agentid.py
+from agent_id_service_sdk import Verifier
+from myhub.config import (
+    HUB_SERVICE_ID, HUB_KID, HUB_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
+)
+
+verifier = Verifier(
+    trusted_providers=TRUSTED_PROVIDERS,
+    audience=HUB_SERVICE_ID,
+    # Hub signing — needed once you reach Level 2 (activity emission).
+    # Safe to wire now even if you haven't enabled emission yet.
+    hub_signing_key=HUB_PRIVATE_KEY_PEM,
+    hub_signing_kid=HUB_KID,
+    hub_service_id=HUB_SERVICE_ID,
+)
+```
+
+Wrap it in a FastAPI dependency:
+
+```python
+# myhub/auth.py
+from fastapi import Header, HTTPException, Request
+from myhub.agentid import verifier
+
+
+async def get_agent(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Authorization: Bearer <token> required")
+    try:
+        return await verifier.verify_token(
+            authorization[7:],
+            request_context={"route": request.url.path},
+        )
+    except Exception as exc:  # narrow this; see SDK errors module
+        raise HTTPException(401, f"Token verification failed: {exc}") from exc
+```
+
+### 1.5 Use it in your routes
+
+```python
+from fastapi import Depends, HTTPException
+from myhub.auth import get_agent
+
+
+@app.post("/some-agent-action")
+async def agent_action(
+    body: SomeRequest,
+    agent = Depends(get_agent),
+):
+    # agent.agent_id, agent.principal, agent.issuer, etc. are all verified.
+    # The token's audience matched HUB_SERVICE_ID; the issuer is in your trust list.
+    if "myservice:write" not in agent.scopes:
+        raise HTTPException(403, "scope required: myservice:write")
+    # ... your logic ...
+```
+
+### 1.6 Smoke test (publish + verify)
+
+**Publish side** — peers can fetch and verify your identity:
 
 ```bash
 curl https://api.myservice.com/.well-known/agent-id-activity-manifest
@@ -118,7 +199,7 @@ curl https://api.myservice.com/.well-known/agent-id-jwks
 # → {"keys":[{"kty":"OKP","crv":"Ed25519","x":"...","kid":"prod-hub-key-1"}]}
 ```
 
-From any verifier, fetching your manifest now succeeds:
+From any other process, fetching the signed manifest succeeds:
 
 ```python
 from agent_id_service_sdk import HubManifestFetcher
@@ -128,13 +209,27 @@ manifest = await fetcher.fetch("https://api.myservice.com")
 # raises HubManifestSignatureError if the signature doesn't match the JWKS
 ```
 
-That's a Level-1 hub. ~30 lines of integration code, half a day to ship.
+**Verify side** — your service rejects unsigned and accepts properly-issued tokens:
+
+```bash
+# Missing token → 401
+curl -X POST https://api.myservice.com/some-agent-action
+# → {"detail":"Authorization: Bearer <token> required"}
+
+# Token from an issuer not in TRUSTED_PROVIDERS → 401
+curl -X POST -H "Authorization: Bearer <bogus-token>" https://api.myservice.com/some-agent-action
+# → {"detail":"Token verification failed: ..."}
+
+# Token from a trusted IdP, scope satisfied → your handler runs
+```
+
+That's a Level-1 hub. ~80 lines of integration code, about a week to ship if you're wiring it into a new service. The hard parts (envelope signing, trust list, JWS verification) are all in the SDK; you write configuration and a route dependency.
 
 ---
 
-## Level 2 — Activity-emitting hub
+## Level 2 — Activity emission
 
-Goal: in addition to publishing identity, your service emits *signed* activity events to an aip-activity service so that audit, reputation, and cross-hub correlation work.
+Goal: in addition to being a hub, your service emits *signed* activity events to an aip-activity service so that audit, reputation, and cross-hub correlation work.
 
 ### 2.1 Define your categories
 
@@ -206,28 +301,30 @@ Schema design tips:
 
 ### 2.3 Wire the emitter
 
-Use the SDK's `Verifier` with hub signing keys configured. It exposes `report_event()` which queues the event, signs it as a HubJWS envelope, and posts to the upstream activity service.
+The same `Verifier` instance you constructed in §1.4 also exposes `report_event()`, which queues an event, signs it as a HubJWS envelope, and posts to the upstream activity service. Add the activity-related options to that constructor:
 
 ```python
-# myhub/agentid_emitter.py
+# myhub/agentid.py — extend the §1.4 Verifier
+import os
 from agent_id_service_sdk import Verifier
 from myhub.config import (
-    HUB_SERVICE_ID, HUB_KID, HUB_PRIVATE_KEY_PEM,
+    HUB_SERVICE_ID, HUB_KID, HUB_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
 )
-import os
 
 ACTIVITY_ORIGIN = os.environ["MYHUB_ACTIVITY_ORIGIN"]   # e.g. https://activity.dojozero.live
 
 verifier = Verifier(
-    trusted_providers=["qwenpaw.ai"],   # IdPs you trust for inbound JWTs (only matters at Level 3)
+    trusted_providers=TRUSTED_PROVIDERS,
     audience=HUB_SERVICE_ID,
-    activity_endpoint=f"{ACTIVITY_ORIGIN}/agentid/activity",
-    service_name="myhub",
 
-    # Hub signing — REQUIRED for emission to work.
+    # Hub signing — already required at Level 1; reused here for envelopes.
     hub_signing_key=HUB_PRIVATE_KEY_PEM,
     hub_signing_kid=HUB_KID,
     hub_service_id=HUB_SERVICE_ID,
+
+    # Activity-specific options:
+    activity_endpoint=f"{ACTIVITY_ORIGIN}/agentid/activity",
+    service_name="myhub",
 
     # Privacy posture (design §5.0). Conservative default; override per category.
     hub_privacy_claim={
@@ -283,88 +380,32 @@ INFO: ingested event_id=... category=myservice.payment_settled ...
 
 If you see `401 envelope verification failed`, something is mismatched between what you sign and what the receiver expects — see footguns below.
 
-That's a Level-2 hub. The hard parts (envelope signing, replay cache, JWS construction) are all in the SDK; you write configuration and category schemas.
+### 2.5 Tier-1 lifecycle events
 
----
-
-## Level 3 — Agent-accepting hub
-
-Goal: agents present a Bearer JWT issued by an IdP; your hub verifies and grants action.
-
-### 3.1 The verifier as auth dependency
-
-The same `Verifier` instance from Level 2 also handles inbound JWT verification. Add a FastAPI dependency:
-
-```python
-# myhub/auth.py
-from fastapi import Header, HTTPException, Request, Depends
-from myhub.agentid_emitter import verifier
-
-
-async def get_agent(
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Authorization: Bearer <token> required")
-    try:
-        return await verifier.verify_token(
-            authorization[7:],
-            request_context={"route": request.url.path},
-        )
-    except Exception as exc:  # narrow this; see SDK errors module
-        raise HTTPException(401, f"Token verification failed: {exc}") from exc
-```
-
-### 3.2 Use it in routes
-
-```python
-@app.post("/some-agent-action")
-async def agent_action(
-    body: SomeRequest,
-    agent = Depends(get_agent),
-):
-    # agent.agent_id, agent.principal, agent.issuer, etc. are all verified.
-    # The token's audience matched HUB_SERVICE_ID; the issuer is in your trust list.
-    if "myservice:write" not in agent.scopes:
-        raise HTTPException(403, "scope required: myservice:write")
-    # ... your logic ...
-```
-
-### 3.3 Trust list
-
-`trusted_providers` in the Verifier constructor is your IdP allowlist. Tokens from IdPs not in the list are rejected. Add to it as you onboard new IdPs — never auto-trust on first sight.
-
-```python
-verifier = Verifier(
-    trusted_providers=[
-        "qwenpaw.ai",
-        "openclaw.ai",
-        "internal-idp.mycompany.com",
-    ],
-    ...
-)
-```
-
-For IdPs that aren't reachable at the conventional `https://<provider_domain>/.well-known/...` path (e.g., local dev), use `provider_urls`:
-
-```python
-provider_urls={
-    "localhost:8000": "http://localhost:8000",
-}
-```
-
-### 3.4 Emit lifecycle events
-
-Once you accept agents, emit Tier-1 lifecycle events so aip-activity can build cross-hub reputation:
+Beyond your custom Tier-2 categories, emit Tier-1 events so aip-activity can build cross-hub reputation about your acceptance behavior:
 
 - `session.start` when an agent is admitted (registration, first request, etc.).
 - `session.end` when an agent leaves (unregistration, timeout).
 - `auth.deny` when a token fails verification — lets reputation systems detect token-stuffing or impersonation attempts.
 
-The SDK has helpers for these in `agent_id_service_sdk` (see `Verifier.report_session_start`, `.report_session_end`).
+The SDK has helpers for these on the same `Verifier` instance (`report_session_start`, `report_session_end`). Wire them where the corresponding lifecycle events occur in your application — typically in your auth dependency for `auth.deny`, and at agent registration / cleanup paths for the session events.
 
-That's a Level-3 hub.
+That's a Level-2 hub. The hard parts (envelope signing, replay cache, JWS construction) are all in the SDK; you write configuration and category schemas.
+
+---
+
+## Level 3 — Approval gating *(preview)*
+
+Goal: gate high-risk actions through human-in-the-loop approval, where the decision is delegated to the principal's IdP rather than implemented per-hub.
+
+**Status: designed, not yet shipped end-to-end in the SDK.** This section is a placeholder so the level structure is honest about what's coming. Don't build against this surface yet — the wire shape may change.
+
+The design lives in `design/2026-04-23-approval-scenarios.en.md`. Two models are described:
+
+- **Hub-local approvals** — the hub itself runs the approval queue and presents decisions to the principal. Reference implementation in `examples/demo-hub/approve.py` and `hub.py`. Workable today for single-tenant deployments.
+- **IdP-delegated approvals (Model 3)** — the hub forwards the approval request to the principal's IdP, which runs the workflow (presenting it through whatever channel the IdP already owns — corporate SSO, family-account console, bank-grade auth) and returns a signed decision. The Rita/Acme scenario is the canonical example. This is the differentiated mode and the one the Level-3 chapter will document once shipped.
+
+If you have an integration that needs approval gating before the SDK lands the full Model 3 flow, the hub-local model is your option — talk to us so we can scope the right shape together.
 
 ---
 
@@ -434,13 +475,13 @@ These are real gaps; they'll get their own sections once the underlying work lan
 
 ## Reference implementation
 
-DojoZero (`packages/dojozero/src/dojozero/gateway/`) is a complete Level-3 hub. Specifically:
+DojoZero (`packages/dojozero/src/dojozero/gateway/`) is a complete Level-2 hub. Specifically:
 
-- `_hub_publisher.py` — Layer 1 (manifest + JWKS signing)
-- `_hub_routes.py` — Layer 1 routes mounted on the dashboard server
-- `_agentid.py` — Verifier construction with all options wired
-- `_activity.py` — Tier-1 emission helpers (`emit_session_start`, `emit_model_call`, `emit_tool_use`, `emit_auth_deny`, etc.)
-- `_server.py` — Layer 3 (agent registration, Bearer JWT verification via `get_agent_id` dependency)
+- `_hub_publisher.py` — Level 1 (manifest + JWKS signing)
+- `_hub_routes.py` — Level 1 routes mounted on the dashboard server
+- `_agentid.py` — Level 1 (Verifier construction with all options wired)
+- `_server.py` — Level 1 (agent registration, Bearer JWT verification via `get_agent_id` dependency)
+- `_activity.py` — Level 2 (Tier-1 emission helpers: `emit_session_start`, `emit_model_call`, `emit_tool_use`, `emit_auth_deny`, etc.)
 
 DojoZero carries a lot of code that isn't required for AgentID compliance (betting broker, data hub, Ray runtime, CLI). Filter accordingly when reading.
 
