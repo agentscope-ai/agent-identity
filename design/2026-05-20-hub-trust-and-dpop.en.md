@@ -97,6 +97,40 @@ Each hub manifest can declare `attested_by: "agentid:<idp>:org_xxx"` — an org-
 
 Until then, every IdP maintains its own `verified` set. That's fine for the current adopter set (Dail-IdP only).
 
+### 3.6 Trust-list API for downstream services
+
+The hub trust list is **operator-curated state** that other services in the AgentID stack need access to — specifically `aip-activity`, which must refuse event ingest from hubs the IdP doesn't recognise (otherwise random domains publishing manifests can pollute the activity / reputation graph).
+
+The IdP exposes the trust list on a public, no-auth endpoint:
+
+```
+GET /agentid/hubs/public
+   → 200 {
+       "trusted_origins": [
+         "https://api.dojozero.live",
+         "https://acme-trading.example.com"
+       ],
+       "served_at": "2026-05-20T10:00:00Z"
+     }
+```
+
+Returns the union of `verified` + `self_onboarded` rows; `blocked` rows are excluded. Only the origin is returned — no status tier, no notes, no attester chain — so the endpoint is safe to leave unauthenticated (hub origins are public information anyway; they appear as JWT `aud` claims on every request).
+
+Downstream services (in v0.5: `aip-activity`) poll this endpoint and cache the result. The polling pattern, not a shared database, is the deliberate choice:
+
+- **Schema/deployment decoupling.** Migrations and releases on the IdP side don't gate the activity service. A shared-DB design couples both lifecycles.
+- **Failure-mode independence.** IdP outages don't take down activity ingest; the activity service serves stale-but-valid cache during incidents.
+- **Federation-ready.** When v2 supports multiple trust sources, `aip-activity` just polls multiple URLs. No schema gymnastics.
+
+Polling consumer obligations (`aip-activity` reference implementation):
+
+- Refresh every 5 minutes; cache TTL 10 minutes (2× refresh interval).
+- Configured via `AGENTID_IDP_TRUST_LIST_URL`. **Unset** = enforcement disabled (back-compat for deployments not running the IdP-side trust feature).
+- After HubJWS verifies, before any further processing: refuse 403 if `envelope.iss` is not in the cached set.
+- Fail-closed when cache is empty AND enforcement is enabled (cold-start protection); fail-open behaviour is **not** offered — operators opt in to enforcement deliberately.
+
+Operator UX is unchanged: promotions / blocks happen in the IdP portal; the activity service follows within one refresh cycle.
+
 ## 4. Hub manifest extensions
 
 ### 4.1 New optional fields
@@ -304,6 +338,7 @@ Old clients ignore unknown claims; new clients use them. JWT itself is JWS-signe
 - Demo hub reads `delegation` claim instead of hardcoded threshold; manifest's `approval_policy` matches the in-process floor (single source of truth).
 - v0.5 design doc published (this document).
 - Trusted Hubs portal endpoints + UI (in flight).
+- **`GET /agentid/hubs/public` exposed; `aip-activity` polls it and refuses ingest from non-listed hubs (§3.6).** Closes the "any domain with a manifest can pollute the activity stream" hole.
 - DojoZero coordination: adopt new SDK versions, publish manifest with `approval_policy`, enable DPoP at hub side.
 
 ### 8.3 Phase C — Enforcement (≥ Q3 2026)
@@ -321,6 +356,7 @@ Old clients ignore unknown claims; new clients use them. JWT itself is JWS-signe
 - mTLS-bound tokens (RFC 8705). Defer unless adopter forces it (§6.4).
 - Approval-policy DSL v2 with per-constraint operators / regions / time-of-day. Defer until a v1 limitation actually blocks an adopter.
 - Ephemeral DPoP keys distinct from the agent's registered key. Defer; current design uses the registered key directly.
+- Shared-DB coupling between `aip-idp` and `aip-activity` for trust-list state. Per §3.6 — API-sync is the deliberate design, not shared DB.
 
 ## 9. Open questions
 
@@ -347,6 +383,10 @@ The first three are locked in Phase A — listed here for the spec rev. The rest
 2. **DPoP key**: the agent's existing registered key, not a separate ephemeral DPoP key.
 
 3. **Trust tier strictness on `/agentid/token`**: lenient. Unknown audiences pass through without delegation claim when auto-discovery fails (logged warning). Only `blocked` refuses outright. Strict mode is a future option, not a v0.5 default.
+
+4. **Trust enforcement at activity ingest**: strict. `aip-activity` polls `aip-idp`'s `/agentid/hubs/public` endpoint, caches the result, refuses events from hubs outside the cached set. Opt-in via `AGENTID_IDP_TRUST_LIST_URL`; unset = enforcement disabled for back-compat (§3.6).
+
+5. **Inter-service coupling for trust state**: API-sync, not shared DB. Operators manage trust list in the IdP portal; downstream services poll. Rationale and tradeoffs in §3.6.
 
 **Pending decisions (Phase B):**
 
