@@ -43,6 +43,19 @@ from .namespace_ownership import (
     NamespaceOwnershipError,
     verify_namespace_ownership,
 )
+from .dpop import (
+    DPoPError,
+    DPoPMalformedError,
+    DPoPSignatureError,
+    DPoPBindingError,
+    DPoPHTTPBindingError,
+    DPoPSkewError,
+    DPoPReplayError,
+    DPoPTokenBindingError,
+    InMemoryReplayCache,
+    jwk_thumbprint,
+    verify_dpop_proof,
+)
 
 __all__ = [
     "Verifier",
@@ -83,6 +96,17 @@ __all__ = [
     "verify_envelope",
     "NamespaceOwnershipError",
     "verify_namespace_ownership",
+    "DPoPError",
+    "DPoPMalformedError",
+    "DPoPSignatureError",
+    "DPoPBindingError",
+    "DPoPHTTPBindingError",
+    "DPoPSkewError",
+    "DPoPReplayError",
+    "DPoPTokenBindingError",
+    "InMemoryReplayCache",
+    "jwk_thumbprint",
+    "verify_dpop_proof",
 ]
 
 # v0.1 compatibility aliases — to be removed in v1.0.

@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -20,6 +20,11 @@ from .errors import (
     SignatureInvalidError,
 )
 from .events import ActivityEvent, category_tier, match_category
+from .dpop import (
+    DPoPError,
+    InMemoryReplayCache,
+    verify_dpop_proof,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +71,15 @@ class Verifier:
         hub_signing_kid: str | None = None,
         hub_service_id: str | None = None,
         hub_privacy_claim: dict[str, Any] | None = None,
+        # --- DPoP — sender-constrained tokens (RFC 9449) ---
+        # "disabled": ignore DPoP entirely; Bearer-only (legacy behavior).
+        # "optional": accept Bearer; verify DPoP if the token carries cnf.jkt
+        #             AND the request presents a DPoP scheme + DPoP header.
+        # "required": every request must use DPoP scheme + DPoP header,
+        #             tokens MUST carry cnf.jkt. Bearer is rejected.
+        dpop_mode: Literal["disabled", "optional", "required"] = "disabled",
+        dpop_max_skew_seconds: int = 60,
+        dpop_replay_cache: Any = None,
     ) -> None:
         self._trusted_providers = [_normalise_domain(p) for p in trusted_providers]
         self._audience = audience
@@ -101,6 +115,18 @@ class Verifier:
         # within the signed envelope. None → activity service applies
         # the conservative ``summary`` default.
         self._hub_privacy_claim = hub_privacy_claim
+
+        # --- DPoP state ---
+        if dpop_mode not in ("disabled", "optional", "required"):
+            raise ValueError(
+                f"dpop_mode must be one of disabled/optional/required, got {dpop_mode!r}"
+            )
+        self._dpop_mode: Literal["disabled", "optional", "required"] = dpop_mode
+        self._dpop_max_skew_seconds = dpop_max_skew_seconds
+        # Default to in-memory cache; deployments behind multiple replicas
+        # SHOULD inject a Redis-backed cache that duck-types the same
+        # __contains__ / add(jti, ttl_seconds=...) interface.
+        self._dpop_replay_cache = dpop_replay_cache or InMemoryReplayCache()
 
         # Lazily-initialized async resources. Created on first emit so the
         # verifier can be constructed outside an event loop.
@@ -199,26 +225,118 @@ class Verifier:
         authorization_header: str,
         request_context: dict[str, Any] | None = None,
     ) -> VerifiedAgent:
-        """Verify an ``Authorization: Bearer <token>`` header and return an `VerifiedAgent`.
+        """Verify an Authorization header and return a :class:`VerifiedAgent`.
+
+        Accepts either ``Authorization: Bearer <token>`` (legacy) or
+        ``Authorization: DPoP <token>`` (sender-constrained, RFC 9449). The
+        scheme requirement depends on this verifier's ``dpop_mode``:
+
+          * ``disabled``: only Bearer is accepted. DPoP headers are ignored
+            even when present.
+          * ``optional``: Bearer always accepted. If the scheme is DPoP
+            *and* a ``DPoP`` header is supplied in ``request_context`` *and*
+            the token's payload contains ``cnf.jkt``, the proof is verified.
+          * ``required``: only DPoP is accepted. The token MUST carry
+            ``cnf.jkt`` and the request MUST supply the ``DPoP`` header.
+
+        ``request_context`` keys consulted by DPoP verification:
+          * ``method`` — HTTP method of the inbound request (str).
+          * ``url`` — full URL of the inbound request (str).
+          * ``dpop_header`` — raw value of the ``DPoP`` header (str).
 
         Convenience wrapper for HTTP handlers. For non-HTTP transports
-        (WebSocket, gRPC, MCP), use :meth:`verify_token` directly.
-
-        `request_context` is an optional dict carrying `route` and other
-        per-request context. Only used when `report_auto_verify=True`.
+        (WebSocket, gRPC, MCP), call :meth:`verify_token` directly — DPoP
+        is HTTP-shaped and bypassed for non-HTTP callers.
 
         Raises:
-            TokenInvalidError: header is malformed or audience mismatch.
+            TokenInvalidError: header malformed, missing token, scheme
+                wrong for the configured ``dpop_mode``, or DPoP proof
+                check failed.
             ProviderUntrustedError: issuer is not in trusted_providers.
             TokenExpiredError: token has expired.
-            SignatureInvalidError: signature verification failed.
+            SignatureInvalidError: JWT signature verification failed.
         """
-        if not authorization_header or not authorization_header.startswith("Bearer "):
-            raise TokenInvalidError("Authorization header must start with 'Bearer '")
+        if not authorization_header:
+            raise TokenInvalidError("Authorization header missing")
 
-        return await self.verify_token(
-            authorization_header[7:], request_context=request_context
+        scheme, _, token = authorization_header.partition(" ")
+        token = token.strip()
+        if not token:
+            raise TokenInvalidError(
+                "Authorization header malformed (expected '<scheme> <token>')"
+            )
+
+        if scheme == "Bearer":
+            if self._dpop_mode == "required":
+                raise TokenInvalidError(
+                    "Authorization scheme 'Bearer' rejected: this verifier "
+                    "requires DPoP (RFC 9449)"
+                )
+            agent = await self.verify_token(token, request_context=request_context)
+            return agent
+
+        if scheme == "DPoP":
+            if self._dpop_mode == "disabled":
+                raise TokenInvalidError(
+                    "Authorization scheme 'DPoP' received but DPoP support is disabled"
+                )
+            agent = await self.verify_token(token, request_context=request_context)
+            self._verify_dpop_against_request(token, agent, request_context)
+            return agent
+
+        raise TokenInvalidError(
+            f"Authorization scheme {scheme!r} not supported (expected 'Bearer' or 'DPoP')"
         )
+
+    def _verify_dpop_against_request(
+        self,
+        access_token: str,
+        agent: VerifiedAgent,
+        request_context: dict[str, Any] | None,
+    ) -> None:
+        """Run the DPoP proof check against the verified JWT.
+
+        Called only when the inbound scheme is DPoP. We've already
+        verified the JWT itself in :meth:`verify_token`; what's left is
+        the holder-binding and request-binding checks.
+        """
+        cnf = agent.raw_claims.get("cnf") if agent.raw_claims else None
+        cnf_jkt = cnf.get("jkt") if isinstance(cnf, dict) else None
+        if not isinstance(cnf_jkt, str):
+            raise TokenInvalidError(
+                "DPoP scheme used but the access token has no cnf.jkt — "
+                "the IdP that issued this token did not bind it to a holder key"
+            )
+
+        ctx = request_context or {}
+        dpop_header = ctx.get("dpop_header")
+        http_method = ctx.get("method")
+        http_url = ctx.get("url")
+        if not isinstance(dpop_header, str) or not dpop_header:
+            raise TokenInvalidError(
+                "DPoP scheme used but request_context did not include a 'dpop_header'"
+            )
+        if not isinstance(http_method, str) or not isinstance(http_url, str):
+            raise TokenInvalidError(
+                "DPoP verification requires request_context['method'] and "
+                "request_context['url'] — pass them from the HTTP handler"
+            )
+
+        try:
+            verify_dpop_proof(
+                dpop_header=dpop_header,
+                access_token=access_token,
+                cnf_jkt=cnf_jkt,
+                http_method=http_method,
+                http_url=http_url,
+                replay_cache=self._dpop_replay_cache,
+                max_skew_seconds=self._dpop_max_skew_seconds,
+            )
+        except DPoPError as exc:
+            # Surface DPoP failures as TokenInvalidError so downstream handlers
+            # can catch the standard auth-failure class. The original error
+            # type is preserved via __cause__ for callers that care.
+            raise TokenInvalidError(f"DPoP proof rejected: {exc}") from exc
 
     async def verify_token(
         self,

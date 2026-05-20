@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import secrets
+import time
 import zipfile
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
+import jwt as pyjwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
@@ -172,10 +177,75 @@ class Identity:
         signature = self._private_key.sign(message.encode())
         return signature.hex()
 
+    def public_jwk(self) -> dict[str, Any]:
+        """Return this identity's public key as a JWK dict.
+
+        Used as the ``jwk`` member of a DPoP proof's JWS header. Contains
+        only the public components (``kty``, ``crv``, ``x``) — never the
+        private key.
+        """
+        pub_bytes = self._private_key.public_key().public_bytes_raw()
+        return {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": _b64u(pub_bytes),
+        }
+
+    def sign_dpop_proof(
+        self,
+        *,
+        htm: str,
+        htu: str,
+        access_token: str | None = None,
+        iat: int | None = None,
+        jti: str | None = None,
+    ) -> str:
+        """Sign a DPoP proof (RFC 9449) for one outbound HTTP request.
+
+        Args:
+            htm: HTTP method (e.g. ``"POST"``). Stored upper-cased in the
+                proof per RFC 9449 §4.2.
+            htu: Full request URL. Query string and fragment are stripped
+                by the verifier; we pass through verbatim.
+            access_token: When present, an ``ath`` claim is added binding
+                the proof to ``base64url(sha256(access_token))``. Required
+                when this proof accompanies an access token (the normal
+                case for an authenticated request).
+            iat: Override the timestamp (testing only). Defaults to
+                ``int(time.time())``.
+            jti: Override the nonce (testing only). Defaults to
+                ``secrets.token_hex(16)``.
+
+        Returns:
+            The compact JWS to be sent as the ``DPoP`` HTTP header.
+        """
+        headers = {
+            "alg": "EdDSA",
+            "typ": "dpop+jwt",
+            "jwk": self.public_jwk(),
+        }
+        payload: dict[str, Any] = {
+            "htm": htm.upper(),
+            "htu": htu,
+            "iat": iat if iat is not None else int(time.time()),
+            "jti": jti if jti is not None else secrets.token_hex(16),
+        }
+        if access_token is not None:
+            digest = hashlib.sha256(access_token.encode("ascii")).digest()
+            payload["ath"] = _b64u(digest)
+        return pyjwt.encode(
+            payload, self._private_key, algorithm="EdDSA", headers=headers
+        )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _b64u(b: bytes) -> str:
+    """Base64url encode (no padding) — the JOSE / DPoP / RFC 7638 convention."""
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
 def _find_in_zip(names: list[str], filename: str) -> str:

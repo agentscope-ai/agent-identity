@@ -33,10 +33,16 @@ from urllib.parse import urlparse
 import httpx
 import jwt as pyjwt
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from agent_id_service_sdk import Verifier
+from agent_id_service_sdk import (
+    Verifier,
+    build_manifest,
+    generate_signing_keypair,
+    sign_envelope,
+    sign_manifest,
+)
 
 # Module-level HTTP client so all hub→IdP calls share one connection pool.
 # Created in the lifespan below and closed on shutdown.
@@ -49,15 +55,79 @@ def _client() -> httpx.AsyncClient:
     return _http
 
 
+# --- Hub-envelope signing state -------------------------------------------
+#
+# Per design §5.0 + the v0.5 spec rev, hub → IdP traffic is HubJWS-signed.
+# Demo-hub generates a fresh Ed25519 keypair on startup and publishes the
+# matching JWK at its own /.well-known/agent-id-jwks. Real hubs persist
+# the key across restarts (k8s Secret, KMS, etc.) so the JWKS is stable.
+HUB_KID = "demo-hub-key-1"
+_hub_private_key: Any = None
+_hub_public_jwk: dict[str, Any] | None = None
+_hub_signed_manifest: str | None = None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _http
+    global _http, _hub_private_key, _hub_public_jwk, _hub_signed_manifest
     _http = httpx.AsyncClient(timeout=5.0)
+
+    # Mint a fresh hub signing key on each restart for the demo. Real hubs
+    # load this from a persisted secret.
+    _hub_private_key, _hub_public_jwk, _ = generate_signing_keypair(kid=HUB_KID)
+
+    # Build + sign the manifest once at startup. Manifest carries the
+    # approval_policy / approval_modes_supported / dpop_supported fields
+    # the v0.5 IdP reads at discovery time.
+    manifest = build_manifest(
+        service_id=HUB_URL,
+        namespace="demo",
+        categories_url=f"{HUB_URL}/.well-known/agent-id-activity-categories",
+        jwks_url=f"{HUB_URL}/.well-known/agent-id-jwks",
+        extra_claims={
+            "display_name": "Demo Hub",
+            "dpop_supported": True,
+            "approval_modes_supported": ["local", "delegated"],
+            "approval_mode_default": "delegated",
+            "approval_policy": {
+                # Threshold mirrors the in-process REQUIRES_APPROVAL_ABOVE.
+                # In the v0.5 model the IdP would also consult this when
+                # composing the delegation claim it puts in agent JWTs.
+                "thresholds": {
+                    "transfer.value": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+                    "trade": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+                },
+                "always_require": ["data.delete"],
+            },
+        },
+    )
+    _hub_signed_manifest = sign_manifest(
+        manifest, private_key=_hub_private_key, kid=HUB_KID
+    )
+    print(f"[config] hub signing key minted (kid={HUB_KID})")
+
     try:
         yield
     finally:
         await _http.aclose()
         _http = None
+
+
+def _hub_sign_envelope(*, body: bytes) -> str:
+    """Sign a HubJWS envelope addressed to the configured IdP origin.
+
+    Used on every hub → IdP call. Re-mints the JWS per request — the
+    envelope's body_sha256 commits to *these* bytes, and jti must be unique.
+    """
+    if _hub_private_key is None:
+        raise RuntimeError("hub signing key not initialised")
+    return sign_envelope(
+        private_key=_hub_private_key,
+        kid=HUB_KID,
+        iss=HUB_URL,
+        aud=IDP_BASE_URL,
+        body=body,
+    )
 
 
 app = FastAPI(title="Demo Hub", lifespan=lifespan)
@@ -215,7 +285,20 @@ async def _delegate_to_idp(approval: ApprovalRequest) -> None:
         "payload": approval.hub_payload,
         "ttl_seconds": int(APPROVAL_TTL.total_seconds()),
     }
-    resp = await _client().post(endpoint, json=payload)
+    # Pre-serialize so we hash the exact bytes we send. httpx would re-encode
+    # if we passed `json=` and we'd lose the body_sha256 binding.
+    import json as _json
+
+    body_bytes = _json.dumps(payload).encode("utf-8")
+    jws = _hub_sign_envelope(body=body_bytes)
+    resp = await _client().post(
+        endpoint,
+        content=body_bytes,
+        headers={
+            "Authorization": f"HubJWS {jws}",
+            "Content-Type": "application/json",
+        },
+    )
     resp.raise_for_status()
     data = resp.json()
     approval.delegated = True
@@ -231,8 +314,13 @@ async def _poll_idp_for_decision(approval: ApprovalRequest) -> None:
     if endpoint is None or approval.idp_approval_id is None:
         return
     poll_url = endpoint.rstrip("/") + f"/{approval.idp_approval_id}"
+    # GET has no body; envelope commits to empty bytes.
+    jws = _hub_sign_envelope(body=b"")
     try:
-        resp = await _client().get(poll_url)
+        resp = await _client().get(
+            poll_url,
+            headers={"Authorization": f"HubJWS {jws}"},
+        )
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -809,3 +897,28 @@ async def hub_discovery():
         "local_mode": False,
         "agentid_version": "1.0",
     }
+
+
+@app.get("/.well-known/agent-id-jwks")
+async def hub_jwks():
+    """Publish the hub's signing key(s) so the IdP / activity service can
+    verify HubJWS envelopes and the manifest's JWS signature."""
+    if _hub_public_jwk is None:
+        raise HTTPException(503, "hub signing key not initialised")
+    return {"keys": [_hub_public_jwk]}
+
+
+@app.get("/.well-known/agent-id-activity-manifest")
+async def hub_manifest():
+    """Serve the hub's JWS-signed activity manifest (compact serialization).
+
+    The IdP's HubManifestFetcher fetches this URL during auto-discovery,
+    verifies the signature against /.well-known/agent-id-jwks, and extracts
+    the published approval_policy / dpop_supported / etc. into the
+    agentid_trusted_hub row."""
+    if _hub_signed_manifest is None:
+        raise HTTPException(503, "hub manifest not initialised")
+    return PlainTextResponse(
+        _hub_signed_manifest,
+        media_type="application/jose",
+    )
