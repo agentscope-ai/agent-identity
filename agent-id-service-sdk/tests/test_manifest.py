@@ -115,7 +115,7 @@ def _patch_http(jws: str, jwks_dict: dict):
         client.__aexit__ = _aexit
 
         async def _get(url, *_a, **_kw):
-            if url.endswith("/agent-id-activity-manifest"):
+            if url.endswith("/agent-id-manifest"):
                 return _http_response(200, text=jws)
             if url.endswith("/agent-id-jwks"):
                 return _http_response(200, json_body=jwks_dict)
@@ -386,7 +386,7 @@ def _patch_full_chain(
             resp = AsyncMock()
             resp.status_code = 200
             resp.raise_for_status = lambda: None
-            if url.endswith("/agent-id-activity-manifest"):
+            if url.endswith("/agent-id-manifest"):
                 resp.text = jws
             elif url.endswith("/agent-id-jwks"):
                 resp.json = lambda: jwks

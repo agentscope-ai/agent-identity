@@ -46,6 +46,13 @@ class VerifiedAgent:
     issuer: str
     expires_at: datetime
     raw_claims: dict
+    # Verbatim JWT string the agent presented. Captured during verify so
+    # hubs can forward it as ``X-AgentID-Token`` on activity ingest —
+    # this is how the principal's privacy preference (signed into the
+    # JWT by the IdP) reaches the activity service. The ``raw_claims``
+    # dict alone isn't enough: forwarding the parsed claims would
+    # bypass signature verification at the next hop.
+    raw_jwt: str = ""
 
 
 class Verifier:
@@ -134,7 +141,10 @@ class Verifier:
         # endpoint is resolved per-issuer at enqueue time and carried alongside
         # the event so the drain task doesn't have to re-resolve it.
         self._emit_client: httpx.AsyncClient | None = None
-        self._emit_queue: asyncio.Queue[tuple[ActivityEvent, str]] | None = None
+        # Queue entries: (event, resolved activity endpoint, agent's raw JWT
+        # for X-AgentID-Token forwarding). Empty JWT string when caller didn't
+        # supply one (back-compat — older Verifier consumers don't capture it).
+        self._emit_queue: asyncio.Queue[tuple[ActivityEvent, str, str]] | None = None
         self._emit_drain_task: asyncio.Task[None] | None = None
         self._emit_overflow_count = 0
 
@@ -430,6 +440,7 @@ class Verifier:
             model_info=claims.get("model_info"),
             issuer=issuer,
             expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
+            raw_jwt=token,
             raw_claims=claims_with_kid,
         )
 
@@ -514,7 +525,7 @@ class Verifier:
             timestamp=timestamp,
         )
 
-        await self._enqueue_event(evt, agent.issuer)
+        await self._enqueue_event(evt, agent.issuer, agent.raw_jwt)
 
     async def report_session_start(
         self,
@@ -553,7 +564,9 @@ class Verifier:
             outcome="success",
         )
 
-    async def _enqueue_event(self, evt: ActivityEvent, issuer: str) -> None:
+    async def _enqueue_event(
+        self, evt: ActivityEvent, issuer: str, agent_jwt: str = ""
+    ) -> None:
         await self._ensure_emitter()
         # Resolve activity endpoint — override > discovery cache > skip.
         endpoint = (
@@ -571,8 +584,9 @@ class Verifier:
 
         # _ensure_emitter() above guarantees the queue is initialised.
         assert self._emit_queue is not None
+        item = (evt, endpoint, agent_jwt)
         try:
-            self._emit_queue.put_nowait((evt, endpoint))
+            self._emit_queue.put_nowait(item)
         except asyncio.QueueFull:
             # Drop oldest, increment counter
             try:
@@ -581,7 +595,7 @@ class Verifier:
             except asyncio.QueueEmpty:
                 pass
             try:
-                self._emit_queue.put_nowait((evt, endpoint))
+                self._emit_queue.put_nowait(item)
             except asyncio.QueueFull:
                 self._emit_overflow_count += 1
 
@@ -611,7 +625,7 @@ class Verifier:
         assert self._emit_queue is not None
         assert self._emit_client is not None
         while True:
-            evt, endpoint = await self._emit_queue.get()
+            evt, endpoint, agent_jwt = await self._emit_queue.get()
             try:
                 # Body is JSON-serialized once; the hash in the envelope
                 # commits to *these* bytes, so the verifier must hash the
@@ -634,11 +648,17 @@ class Verifier:
                     "Authorization": f"{AUTHORIZATION_SCHEME} {jws}",
                     "Content-Type": "application/json",
                 }
-                # Note: X-AgentID-Token is not set for hub emissions per
-                # design §5.0 — the hub's privacy claim now travels in
-                # the signed envelope. agent_token_for_emit remains in
-                # the constructor signature for legacy callers but is
-                # no longer used on outbound emissions.
+                # X-AgentID-Token forwarding: the hub passes the verbatim
+                # JWT through so the activity service can verify it against
+                # IdP JWKS and read the principal's privacy claim (signed
+                # by the IdP, not the hub). Without this the hub's envelope
+                # claim is the only privacy signal, which lets a hub assert
+                # `full` over a principal who set `existence` — the §5.0
+                # enforcement gap. Empty string when the verifier didn't
+                # capture the raw JWT (legacy callers); activity service
+                # falls back to envelope claim only.
+                if agent_jwt:
+                    headers["X-AgentID-Token"] = agent_jwt
                 resp = await self._emit_client.post(
                     endpoint,
                     headers=headers,

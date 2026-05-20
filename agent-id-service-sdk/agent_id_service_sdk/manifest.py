@@ -1,7 +1,7 @@
 """Hub manifest discovery client.
 
 Fetches and verifies hub manifests from
-``<service_id>/.well-known/agent-id-activity-manifest``. Mirrors the
+``<service_id>/.well-known/agent-id-manifest``. Mirrors the
 JWKS-fetcher pattern in :class:`Verifier`: lazy fetch on first use,
 cached by ``service_id`` with TTL, JWS signature verified against the
 hub's own JWKS (also cached, also lazy).
@@ -30,7 +30,7 @@ from jwt import PyJWK
 # Path on the hub's domain where the manifest lives. This is the
 # protocol's spelling — same kind of stable convention as
 # ``/.well-known/agent-id-jwks``.
-WELL_KNOWN_MANIFEST_PATH = "/.well-known/agent-id-activity-manifest"
+WELL_KNOWN_MANIFEST_PATH = "/.well-known/agent-id-manifest"
 WELL_KNOWN_JWKS_PATH = "/.well-known/agent-id-jwks"
 
 # Algorithms accepted for manifest signing. Same set the IdP uses for

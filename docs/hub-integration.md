@@ -106,7 +106,7 @@ async def jwks():
     return {"keys": [_PUBLIC_JWK]}
 
 
-@router.get("/.well-known/agent-id-activity-manifest")
+@router.get("/.well-known/agent-id-manifest")
 async def manifest():
     # Manifest is a JWS compact-serialized string.
     return PlainTextResponse(_SIGNED_MANIFEST, media_type="application/jose")
@@ -192,7 +192,7 @@ async def agent_action(
 **Publish side** — peers can fetch and verify your identity:
 
 ```bash
-curl https://api.myservice.com/.well-known/agent-id-activity-manifest
+curl https://api.myservice.com/.well-known/agent-id-manifest
 # → eyJhbGciOiJFZERTQSIsImtpZCI6...   (JWS compact form)
 
 curl https://api.myservice.com/.well-known/agent-id-jwks

@@ -2,7 +2,7 @@
 
 A hub serves three artifacts at its own ``.well-known/`` endpoints:
 
-- ``/.well-known/agent-id-activity-manifest`` — the signed manifest.
+- ``/.well-known/agent-id-manifest`` — the signed manifest.
 - ``/.well-known/agent-id-activity-categories`` — the (unsigned) catalog.
 - ``/.well-known/agent-id-activity-schemas/<category>/<version>`` — schemas.
 
@@ -109,7 +109,7 @@ def sign_manifest(
 
     Returns:
         The JWS compact serialization string. The hub serves this
-        verbatim at ``/.well-known/agent-id-activity-manifest`` with
+        verbatim at ``/.well-known/agent-id-manifest`` with
         ``Content-Type: application/jose``.
     """
     if algorithm not in _ACCEPTED_ALGS:

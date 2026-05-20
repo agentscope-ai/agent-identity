@@ -938,7 +938,7 @@ async def hub_jwks():
     return {"keys": [_hub_public_jwk]}
 
 
-@app.get("/.well-known/agent-id-activity-manifest")
+@app.get("/.well-known/agent-id-manifest")
 async def hub_manifest():
     """Serve the hub's JWS-signed activity manifest (compact serialization).
 

@@ -171,7 +171,7 @@ async def test_round_trip_sign_then_verify_via_fetcher():
             resp = AsyncMock()
             resp.status_code = 200
             resp.raise_for_status = lambda: None
-            if url.endswith("/agent-id-activity-manifest"):
+            if url.endswith("/agent-id-manifest"):
                 resp.text = jws
             elif url.endswith("/agent-id-jwks"):
                 resp.json = lambda: jwks

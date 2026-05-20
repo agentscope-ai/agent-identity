@@ -61,7 +61,7 @@ IdP checks agentid_trusted_hub.hub_origin = audience
     ↓
 unknown + AGENTID_AUTO_DISCOVER_HUBS=true (or dev mode):
     ↓
-IdP fetches https://api.newhub.live/.well-known/agent-id-activity-manifest
+IdP fetches https://api.newhub.live/.well-known/agent-id-manifest
     ↓
 verifies JWS sig against keys at manifest.jwks_url
 verifies manifest.service_id == audience
@@ -132,6 +132,21 @@ Polling consumer obligations (`aip-activity` reference implementation):
 Operator UX is unchanged: promotions / blocks happen in the IdP portal; the activity service follows within one refresh cycle.
 
 ## 4. Hub manifest extensions
+
+### 4.0 Manifest location: `/.well-known/agent-id-manifest`
+
+The hub's well-known path is **`/.well-known/agent-id-manifest`** — renamed in v0.5 from the legacy `/.well-known/agent-id-activity-manifest`. The old name was scoped to "activity tracking" before the document grew to carry approval policy, DPoP support, display names, attester chains, and other role-agnostic metadata.
+
+Naming considered: `agent-id-configuration` (paired with the IdP-side `/.well-known/agentid-configuration`, matching OAuth/OIDC's `openid-configuration` precedent) vs `agent-id-manifest`. We picked **manifest** because:
+
+- The hub document is a **JWS-signed attestation** — a list of facts cryptographically bound to the hub's identity. The IdP's `agentid-configuration` is unsigned plain JSON (OAuth-shaped discovery). Using the same suffix for both would conflate two structurally different document types at the URL layer.
+- "Manifest" carries the right computing-sense semantic: *a list of contents that can be verified* (package manifests, container manifests, web-app manifests). "Configuration" suggests live operator settings, not a signed attestation.
+- The codebase already uses "manifest" everywhere (`HubManifest`, `HubManifestFetcher`, `sign_manifest`, `build_manifest`, `WELL_KNOWN_MANIFEST_PATH`). The URL aligning with the Python vocabulary removes mental translation.
+- The OAuth precedent is the wrong precedent. We're not doing OAuth discovery; we're doing signed-attestation-of-hub-identity. Borrowing the OAuth name would borrow the wrong type signature.
+
+Naming convention going forward: **`-configuration`** suffix = unsigned protocol discovery (IdP, OAuth-shaped); **`-manifest`** suffix = signed attestation (hub, JWS-shaped). Adopters can tell from the URL whether to expect JSON or a JWS, and which kind of trust applies.
+
+No back-compat alias: the rename is a clean break since adopters are limited (Dail's pre.agent-id.live + DojoZero in flight). DojoZero coordination notes them about the new path before their migration lands.
 
 ### 4.1 New optional fields
 
