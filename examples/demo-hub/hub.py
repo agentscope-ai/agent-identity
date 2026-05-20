@@ -39,7 +39,9 @@ from pydantic import BaseModel, Field
 from agent_id_service_sdk import (
     Verifier,
     build_manifest,
+    evaluate_approval_needed,
     generate_signing_keypair,
+    merge_hub_floor,
     sign_envelope,
     sign_manifest,
 )
@@ -89,16 +91,9 @@ async def lifespan(_: FastAPI):
             "dpop_supported": True,
             "approval_modes_supported": ["local", "delegated"],
             "approval_mode_default": "delegated",
-            "approval_policy": {
-                # Threshold mirrors the in-process REQUIRES_APPROVAL_ABOVE.
-                # In the v0.5 model the IdP would also consult this when
-                # composing the delegation claim it puts in agent JWTs.
-                "thresholds": {
-                    "transfer.value": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
-                    "trade": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
-                },
-                "always_require": ["data.delete"],
-            },
+            # Same DSL as HUB_FLOOR — the IdP reads this from the
+            # manifest and composes it into agent JWTs as `delegation`.
+            "approval_policy": HUB_FLOOR,
         },
     )
     _hub_signed_manifest = sign_manifest(
@@ -170,6 +165,36 @@ verifier = Verifier(
 REQUIRES_APPROVAL_ABOVE = 500.0
 APPROVAL_TTL = timedelta(minutes=10)
 GRANT_TTL = timedelta(minutes=30)
+
+# Hub's own approval-policy floor — the same DSL we publish in the
+# manifest. Applied via merge_hub_floor() before evaluating each
+# request, so even an old IdP that doesn't compose `delegation` claims
+# still gets these enforced. Composition rule = most-restrictive wins.
+HUB_FLOOR = {
+    "always_require": ["file.delete"],
+    "thresholds": {
+        "flight.book": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+        "trade.execute": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+    },
+}
+
+
+def _approval_needed_for(action: str, params: dict, agent) -> tuple[bool, str | None]:
+    """Run the SDK evaluator against the agent's delegation claim merged
+    with this hub's manifest-published floor.
+
+    The IdP composes ``delegation`` from the hub's own published policy
+    (so under normal flow the floor is already included), but merging
+    again here is cheap defense-in-depth for the cases where:
+
+      * the agent's IdP is too old to compose delegation claims yet,
+      * the hub's published floor has changed since the JWT was minted,
+      * the hub doesn't fully trust the IdP's composition correctness.
+    """
+    delegation = agent.delegation if agent.delegation else None
+    merged = merge_hub_floor(delegation, HUB_FLOOR)
+    return evaluate_approval_needed(action=action, params=params, delegation=merged)
+
 
 # In-memory state.
 wallet_balance: dict[str, float] = {}  # principal_id -> balance
@@ -560,7 +585,10 @@ async def book_flight(
     action = "flight.book"
 
     grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
-    if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
+    needed, threshold_reason = _approval_needed_for(
+        action, {"amount_usd": body.amount}, agent
+    )
+    if grant is not None or not needed:
         wallet_balance[principal_id] = balance - body.amount
         return {
             "status": "booked",
@@ -581,7 +609,7 @@ async def book_flight(
             "refundable": body.refundable,
             "currency": "USD",
         },
-        reason=f"Flight cost exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        reason=threshold_reason or "Booking requires approval per hub policy",
         summary=f"Book flight to {body.destination} for ${body.amount:,.2f}",
         facts=[
             {"label": "Destination", "value": body.destination},
@@ -593,10 +621,7 @@ async def book_flight(
             {"label": "Refundable", "value": "Yes" if body.refundable else "No"},
         ],
     )
-    return _approval_response(
-        approval,
-        threshold_note=f"requires_confirmation_above: {REQUIRES_APPROVAL_ABOVE}",
-    )
+    return _approval_response(approval, threshold_note=threshold_reason or "")
 
 
 class DeleteFileRequest(BaseModel):
@@ -618,26 +643,31 @@ async def delete_file(
     action = "file.delete"
 
     grant = _consume_grant(x_agentid_approval, agent, action)
-    if grant is not None:
-        allowed_path = grant.constraints.get("path")
-        if allowed_path and allowed_path != body.path:
-            raise HTTPException(
-                403,
-                f"Grant allows deleting {allowed_path}, not {body.path}",
-            )
-        return {
-            "status": "deleted",
-            "path": body.path,
-            "grant_id": grant.grant_id,
-        }
+    needed, reason = _approval_needed_for(action, {"path": body.path}, agent)
+    if grant is not None or not needed:
+        if grant is not None:
+            allowed_path = grant.constraints.get("path")
+            if allowed_path and allowed_path != body.path:
+                raise HTTPException(
+                    403,
+                    f"Grant allows deleting {allowed_path}, not {body.path}",
+                )
+            return {
+                "status": "deleted",
+                "path": body.path,
+                "grant_id": grant.grant_id,
+            }
+        # Policy didn't require approval (e.g., principal opted out via
+        # never_require) AND no grant was provided — execute directly.
+        return {"status": "deleted", "path": body.path, "grant_id": None}
 
-    # No threshold path for destructive actions — always delegate.
+    # Policy requires approval (default for file.delete via HUB_FLOOR.always_require).
     approval = await _start_approval(
         agent,
         resource="/api/delete-file",
         action=action,
         details={"path": body.path},
-        reason="Destructive action — always requires principal approval",
+        reason=reason or "Destructive action — requires principal approval",
         summary=f"Delete file: {body.path}",
         facts=[
             {"label": "Path", "value": body.path},
@@ -669,7 +699,10 @@ async def trade(
     action = "trade.execute"
 
     grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
-    if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
+    needed, threshold_reason = _approval_needed_for(
+        action, {"amount_usd": body.amount}, agent
+    )
+    if grant is not None or not needed:
         if body.side == "buy":
             wallet_balance[principal_id] = balance - body.amount
         else:
@@ -693,7 +726,7 @@ async def trade(
             "side": body.side,
             "currency": "USD",
         },
-        reason=f"Trade amount exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        reason=threshold_reason or "Trade requires approval per hub policy",
         summary=f"{body.side.upper()} ${body.amount:,.2f} of {body.pair}",
         facts=[
             {"label": "Pair", "value": body.pair},
@@ -705,10 +738,7 @@ async def trade(
             },
         ],
     )
-    return _approval_response(
-        approval,
-        threshold_note=f"requires_confirmation_above: {REQUIRES_APPROVAL_ABOVE}",
-    )
+    return _approval_response(approval, threshold_note=threshold_reason or "")
 
 
 # -- Grant endpoints (spec 7.6.6) -------------------------------------------

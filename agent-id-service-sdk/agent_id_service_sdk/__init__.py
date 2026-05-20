@@ -56,6 +56,7 @@ from .dpop import (
     jwk_thumbprint,
     verify_dpop_proof,
 )
+from .approval_policy import evaluate_approval_needed, merge_hub_floor
 
 __all__ = [
     "Verifier",
@@ -107,6 +108,8 @@ __all__ = [
     "InMemoryReplayCache",
     "jwk_thumbprint",
     "verify_dpop_proof",
+    "evaluate_approval_needed",
+    "merge_hub_floor",
 ]
 
 # v0.1 compatibility aliases — to be removed in v1.0.
