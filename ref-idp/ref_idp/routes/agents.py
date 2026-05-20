@@ -210,6 +210,11 @@ async def revoke_key(agent_id: str, kid: str, request: Request):
         from datetime import datetime, timezone
 
         key.revoked_at = datetime.now(timezone.utc)
+        # Bump token_version so in-flight JWTs issued before this
+        # revocation are refused by version-aware verifiers (v0.5 §6.10).
+        # The natural pair with key revocation — same trigger, same
+        # response.
+        agent.token_version = (agent.token_version or 0) + 1
         await session.commit()
 
     return {"status": "revoked", "kid": kid}

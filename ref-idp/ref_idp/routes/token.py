@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from ref_idp.crypto.jwt import create_agent_token
-from ref_idp.crypto.keys import verify_signature
+from ref_idp.crypto.keys import rfc7638_thumbprint, verify_signature
 from ref_idp.models.database import Agent, AgentKey, Principal, async_session
 
 router = APIRouter()
@@ -100,6 +100,15 @@ async def exchange_token(body: TokenRequest, request: Request):
     else:
         principal_claim = {"type": "unknown", "id": "", "name": ""}
 
+    # cnf.jkt: RFC 7638 thumbprint of the agent's pubkey. Makes the
+    # JWT DPoP-compatible (RFC 9449). Old clients ignore the unknown
+    # claim; new clients use it to attach DPoP proofs.
+    try:
+        pubkey_bytes = bytes.fromhex(key.public_key_bytes)
+        cnf_claim = {"jkt": rfc7638_thumbprint(pubkey_bytes)}
+    except ValueError:
+        cnf_claim = None
+
     token = create_agent_token(
         agent_id=body.agent_id,
         agent_name=agent.name,
@@ -110,6 +119,8 @@ async def exchange_token(body: TokenRequest, request: Request):
         idp_kid=idp_kid,
         issuer=f"https://{app.state.idp_domain}",
         ttl_seconds=ttl,
+        cnf=cnf_claim,
+        agent_token_version=agent.token_version or 0,
     )
 
     expires_at = now + ttl

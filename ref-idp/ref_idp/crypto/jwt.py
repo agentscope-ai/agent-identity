@@ -24,10 +24,21 @@ def create_agent_token(
     spawned_by: str | None = None,
     jurisdiction: str | None = None,
     compliance: dict[str, Any] | None = None,
+    cnf: dict[str, Any] | None = None,
+    agent_token_version: int = 0,
 ) -> str:
     """Create a signed JWT for an agent.
 
     The token is signed with the IdP's private key (EdDSA / Ed25519).
+
+    ``cnf`` (RFC 7800) binds the token to a holder key — populated with
+    ``{"jkt": <rfc7638_thumbprint>}`` makes the token DPoP-compatible
+    (RFC 9449). Hubs running ``dpop_mode="required"`` will demand a
+    fresh DPoP proof signed by the matching private key.
+
+    ``agent_token_version`` is the IdP's in-flight invalidation
+    primitive: bumped on key revocation. DPoP-aware verifiers check
+    that the JWT claim isn't below the agent's current version.
 
     Returns:
         Encoded JWT string.
@@ -42,6 +53,9 @@ def create_agent_token(
         "agentid_version": "0.1",
         "agent_name": agent_name,
         "principal": principal,
+        # Always present (defaults to 0). Resource-server verifiers
+        # refuse JWTs below the agent's current value.
+        "agent_token_version": agent_token_version,
     }
 
     if capabilities:
@@ -58,6 +72,8 @@ def create_agent_token(
         payload["jurisdiction"] = jurisdiction
     if compliance:
         payload["compliance"] = compliance
+    if cnf:
+        payload["cnf"] = cnf
 
     headers = {"kid": idp_kid}
     return jwt.encode(payload, idp_private_key, algorithm="EdDSA", headers=headers)
