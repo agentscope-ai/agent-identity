@@ -53,6 +53,14 @@ class VerifiedAgent:
     # dict alone isn't enough: forwarding the parsed claims would
     # bypass signature verification at the next hop.
     raw_jwt: str = ""
+    # In-flight invalidation primitive (mirrors AipPrincipal.token_version).
+    # IdP issues every JWT with this value baked in; on key compromise
+    # the IdP bumps the agent's row. Verifiers can refuse JWTs whose
+    # version is below the agent's current — kills in-flight tokens
+    # that would otherwise stay valid until TTL. Lookup of the
+    # "current" version is the verifier-deployment's responsibility
+    # (see Verifier(min_agent_token_version=...) hook).
+    agent_token_version: int = 0
 
 
 class Verifier:
@@ -87,6 +95,17 @@ class Verifier:
         dpop_mode: Literal["disabled", "optional", "required"] = "disabled",
         dpop_max_skew_seconds: int = 60,
         dpop_replay_cache: Any = None,
+        # --- agent token_version enforcement (compromise recovery) ---
+        # Lookup of the current minimum-acceptable token_version for an
+        # agent_id. JWTs whose ``agent_token_version`` claim is below
+        # what the lookup returns are refused. ``None`` (default) = no
+        # enforcement; the claim is still stashed on VerifiedAgent for
+        # callers that want to enforce manually.
+        #
+        # Lookup contract: a callable that returns ``int | None`` for a
+        # given ``agent_id``. ``None`` means "no minimum known" (don't
+        # enforce). Sync or async callables both accepted.
+        min_agent_token_version: Any = None,
     ) -> None:
         self._trusted_providers = [_normalise_domain(p) for p in trusted_providers]
         self._audience = audience
@@ -122,6 +141,8 @@ class Verifier:
         # within the signed envelope. None → activity service applies
         # the conservative ``summary`` default.
         self._hub_privacy_claim = hub_privacy_claim
+        # Agent token_version enforcement hook (see ctor docs).
+        self._min_agent_token_version = min_agent_token_version
 
         # --- DPoP state ---
         if dpop_mode not in ("disabled", "optional", "required"):
@@ -430,6 +451,38 @@ class Verifier:
         claims_with_kid = dict(claims)
         claims_with_kid["_kid"] = kid
 
+        raw_version = claims.get("agent_token_version", 0)
+        agent_token_version = (
+            raw_version
+            if isinstance(raw_version, int) and not isinstance(raw_version, bool)
+            else 0
+        )
+
+        # Enforce against the deployment-supplied minimum, if any.
+        if self._min_agent_token_version is not None:
+            agent_id_for_lookup = claims.get("sub", "")
+            try:
+                lookup = self._min_agent_token_version
+                minimum = (
+                    await lookup(agent_id_for_lookup)
+                    if asyncio.iscoroutinefunction(lookup)
+                    else lookup(agent_id_for_lookup)
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "min_agent_token_version lookup failed for %r: %s — "
+                    "skipping enforcement",
+                    agent_id_for_lookup,
+                    exc,
+                )
+                minimum = None
+            if isinstance(minimum, int) and agent_token_version < minimum:
+                raise TokenInvalidError(
+                    f"agent_token_version {agent_token_version} below minimum "
+                    f"{minimum} for {agent_id_for_lookup!r} (key was revoked / "
+                    "rotated by the IdP)"
+                )
+
         agent = VerifiedAgent(
             agent_id=claims.get("sub", ""),
             agent_name=claims.get("agent_name", ""),
@@ -441,6 +494,7 @@ class Verifier:
             issuer=issuer,
             expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
             raw_jwt=token,
+            agent_token_version=agent_token_version,
             raw_claims=claims_with_kid,
         )
 

@@ -1,7 +1,7 @@
 # Hub Trust Tiers + DPoP — Sender-Constrained Tokens
 
 **Date**: 2026-05-20
-**Status**: Draft — Phase A landed in code; design doc captures the wider proposal, B in flight, C deferred.
+**Status**: **Landed** — Phases A + B shipped; main spec [`2026-03-25-agentid.en.md`](./2026-03-25-agentid.en.md) §3.5, §6.9, §6.10, §7.4, §7.6.8 carry the digests with back-references here for full detail. This document is now the canonical reference for design rationale; the main spec is the canonical reference for the protocol contract. v1.0 spec rev will collapse them.
 **Scope**: Refines `2026-03-25-agentid.en.md` §3 (architecture), §6 (token issuance), §7.4 (approval triggers), §7.6 (approval workflow). Extends `2026-05-04-activity-discovery.en.md` §5 (hub envelope auth) to hub → IdP traffic. Companion to those docs; doesn't supersede.
 
 ---
