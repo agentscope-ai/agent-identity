@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -90,9 +90,14 @@ class Verifier:
         # "disabled": ignore DPoP entirely; Bearer-only (legacy behavior).
         # "optional": accept Bearer; verify DPoP if the token carries cnf.jkt
         #             AND the request presents a DPoP scheme + DPoP header.
+        #             Logs a one-time deprecation warning per agent_id when
+        #             Bearer is presented (signals callers to upgrade).
         # "required": every request must use DPoP scheme + DPoP header,
         #             tokens MUST carry cnf.jkt. Bearer is rejected.
-        dpop_mode: Literal["disabled", "optional", "required"] = "disabled",
+        # Default changed in v0.6: "disabled" → "optional". Every Verifier
+        # constructed without an explicit dpop_mode now opportunistically
+        # gains DPoP coverage. Bearer keeps working; just deprecated.
+        dpop_mode: Literal["disabled", "optional", "required"] = "optional",
         dpop_max_skew_seconds: int = 60,
         dpop_replay_cache: Any = None,
         # --- agent token_version enforcement (compromise recovery) ---
@@ -145,7 +150,10 @@ class Verifier:
         self._min_agent_token_version = min_agent_token_version
 
         # --- DPoP state ---
-        if dpop_mode not in ("disabled", "optional", "required"):
+        # Defensive runtime check for callers that bypass type-checking
+        # (e.g. dict-based config). Cast to str so pyright doesn't flag the
+        # check as unreachable from the Literal narrowing.
+        if cast(str, dpop_mode) not in ("disabled", "optional", "required"):
             raise ValueError(
                 f"dpop_mode must be one of disabled/optional/required, got {dpop_mode!r}"
             )
@@ -155,6 +163,10 @@ class Verifier:
         # SHOULD inject a Redis-backed cache that duck-types the same
         # __contains__ / add(jti, ttl_seconds=...) interface.
         self._dpop_replay_cache = dpop_replay_cache or InMemoryReplayCache()
+        # Deduplicate bearer-deprecation warnings: emit at most one per
+        # agent_id per Verifier lifetime so noisy logs don't drown the
+        # signal. Reset on Verifier reconstruction.
+        self._bearer_warned_agents: set[str] = set()
 
         # Lazily-initialized async resources. Created on first emit so the
         # verifier can be constructed outside an event loop.
@@ -304,6 +316,26 @@ class Verifier:
                     "requires DPoP (RFC 9449)"
                 )
             agent = await self.verify_token(token, request_context=request_context)
+            # v0.6 deprecation: when the IdP bound the token to a holder key
+            # (cnf.jkt present) but the caller still used Bearer, log once
+            # per agent_id to nudge upgrades. Only fires under "optional" —
+            # "disabled" silences it (operator chose Bearer-only), "required"
+            # never reaches here (Bearer was already rejected above).
+            if self._dpop_mode == "optional":
+                cnf = agent.raw_claims.get("cnf") if agent.raw_claims else None
+                if (
+                    isinstance(cnf, dict)
+                    and isinstance(cnf.get("jkt"), str)
+                    and agent.agent_id not in self._bearer_warned_agents
+                ):
+                    self._bearer_warned_agents.add(agent.agent_id)
+                    logger.warning(
+                        "agent %r presented Bearer scheme but its JWT carries "
+                        "cnf.jkt — client should upgrade to DPoP (RFC 9449). "
+                        "Bearer is deprecated in v0.6 and may be rejected in "
+                        "a future release.",
+                        agent.agent_id,
+                    )
             return agent
 
         if scheme == "DPoP":

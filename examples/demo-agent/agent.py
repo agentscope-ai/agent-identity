@@ -138,12 +138,17 @@ def _new_identity() -> Identity:
 
 
 def _new_client() -> Client:
-    return Client(_new_identity())
+    # v0.6: demo-agent uses DPoP by default — every request carries a
+    # per-request, sender-bound proof (RFC 9449) so a leaked JWT can't
+    # be replayed from another host. The demo-hub verifier is in
+    # dpop_mode="optional" (the v0.6 default), so this is the realistic
+    # opt-in posture.
+    return Client(_new_identity(), dpop=True)
 
 
 async def cmd_whoami(args):
     identity = _new_identity()
-    client = Client(identity)
+    client = Client(identity, dpop=True)
 
     print("local identity:")
     print(f"  agent_id = {identity.agent_id}")

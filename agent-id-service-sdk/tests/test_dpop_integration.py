@@ -112,6 +112,7 @@ def _patch_verifier_jwks(monkeypatch, verifier: Verifier, idp: _StubIdP) -> None
     pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
 
     async def _fake_fetch(provider_domain, *, force_refresh=False):
+        del provider_domain, force_refresh  # mock — args unused
         return {idp.KID: pub_key}
 
     monkeypatch.setattr(verifier, "_fetch_jwks", _fake_fetch)
@@ -409,9 +410,103 @@ async def test_dpop_disabled_ignores_dpop_scheme(monkeypatch):
     verifier = Verifier(
         trusted_providers=[IDP_DOMAIN],
         audience=HUB_AUDIENCE,
-        # default dpop_mode is 'disabled'
+        dpop_mode="disabled",  # opt out of v0.6's "optional" default
     )
     _patch_verifier_jwks(monkeypatch, verifier, idp)
 
     with pytest.raises(TokenInvalidError, match="DPoP"):
         await verifier.verify(f"DPoP {token}")
+
+
+# ---------------------------------------------------------------------------
+# v0.6: bearer-deprecation warning under dpop_mode=optional
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_optional_bearer_with_cnf_logs_deprecation_warning(monkeypatch, caplog):
+    """Under dpop_mode='optional', a Bearer request whose JWT carries cnf.jkt
+    should emit a one-time deprecation warning per agent_id."""
+    import logging
+
+    idp = _StubIdP()
+    ident = _make_agent_identity()
+    agent_pub = ident._private_key.public_key().public_bytes_raw()
+    token = idp.issue_token(agent_id=ident.agent_id, agent_pubkey_bytes=agent_pub)
+
+    verifier = Verifier(
+        trusted_providers=[IDP_DOMAIN],
+        audience=HUB_AUDIENCE,
+        dpop_mode="optional",
+    )
+    _patch_verifier_jwks(monkeypatch, verifier, idp)
+
+    with caplog.at_level(logging.WARNING, logger="agent_id_service_sdk.verifier"):
+        await verifier.verify(f"Bearer {token}")
+        # Same agent again: should NOT emit a second warning (dedup).
+        await verifier.verify(f"Bearer {token}")
+
+    deprecation_msgs = [
+        r for r in caplog.records if "Bearer" in r.message and "DPoP" in r.message
+    ]
+    assert len(deprecation_msgs) == 1, (
+        f"expected exactly one deprecation warning, got {len(deprecation_msgs)}: "
+        f"{[r.message for r in deprecation_msgs]}"
+    )
+    assert ident.agent_id in deprecation_msgs[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_optional_bearer_without_cnf_does_not_warn(monkeypatch, caplog):
+    """If the IdP didn't bind the token (no cnf.jkt), don't pester the caller
+    to upgrade — there's nothing to upgrade to."""
+    import logging
+
+    idp = _StubIdP()
+    ident = _make_agent_identity()
+    agent_pub = ident._private_key.public_key().public_bytes_raw()
+    token = idp.issue_token(
+        agent_id=ident.agent_id, agent_pubkey_bytes=agent_pub, with_cnf=False
+    )
+
+    verifier = Verifier(
+        trusted_providers=[IDP_DOMAIN],
+        audience=HUB_AUDIENCE,
+        dpop_mode="optional",
+    )
+    _patch_verifier_jwks(monkeypatch, verifier, idp)
+
+    with caplog.at_level(logging.WARNING, logger="agent_id_service_sdk.verifier"):
+        await verifier.verify(f"Bearer {token}")
+
+    deprecation_msgs = [
+        r for r in caplog.records if "Bearer" in r.message and "DPoP" in r.message
+    ]
+    assert deprecation_msgs == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_bearer_with_cnf_does_not_warn(monkeypatch, caplog):
+    """Operators who pinned dpop_mode='disabled' have already made the choice;
+    no need to nag them in logs."""
+    import logging
+
+    idp = _StubIdP()
+    ident = _make_agent_identity()
+    agent_pub = ident._private_key.public_key().public_bytes_raw()
+    token = idp.issue_token(agent_id=ident.agent_id, agent_pubkey_bytes=agent_pub)
+
+    verifier = Verifier(
+        trusted_providers=[IDP_DOMAIN],
+        audience=HUB_AUDIENCE,
+        dpop_mode="disabled",
+    )
+    _patch_verifier_jwks(monkeypatch, verifier, idp)
+
+    with caplog.at_level(logging.WARNING, logger="agent_id_service_sdk.verifier"):
+        await verifier.verify(f"Bearer {token}")
+
+    deprecation_msgs = [
+        r for r in caplog.records if "Bearer" in r.message and "DPoP" in r.message
+    ]
+    assert deprecation_msgs == []

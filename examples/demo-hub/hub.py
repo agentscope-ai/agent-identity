@@ -261,8 +261,19 @@ async def get_agent(request: Request):
     auth = request.headers.get("Authorization")
     if not auth:
         raise HTTPException(401, "Missing Authorization header")
+    # Pass HTTP request context so the Verifier can perform the DPoP
+    # binding check (RFC 9449) when the agent uses the DPoP scheme.
+    # Verifier ignores the context fields under "Bearer" — no-op cost.
+    # The verifier was constructed with the v0.6 default (dpop_mode=
+    # "optional"), so DPoP is exercised opportunistically when the
+    # client opts in.
+    request_context = {
+        "method": request.method,
+        "url": str(request.url),
+        "dpop_header": request.headers.get("DPoP", ""),
+    }
     try:
-        return await verifier.verify(auth)
+        return await verifier.verify(auth, request_context=request_context)
     except Exception as e:
         raise HTTPException(401, str(e))
 
