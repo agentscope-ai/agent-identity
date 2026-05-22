@@ -12,7 +12,7 @@ from sqlalchemy import select
 from ref_idp.crypto.keys import compute_kid
 from ref_idp.models.database import Agent, AgentKey, Principal, async_session
 
-router = APIRouter(prefix="/aip/agents")
+router = APIRouter(prefix="/agents")
 
 
 class RegisterAgentRequest(BaseModel):
@@ -77,7 +77,7 @@ async def register_agent(body: RegisterAgentRequest, request: Request):
     app = request.app
     domain = app.state.idp_domain
     random_part = "agent_" + secrets.token_hex(4)
-    agent_id = f"aip:{domain}:{random_part}"
+    agent_id = f"agentid:{domain}:{random_part}"
     kid = compute_kid(pk_bytes)
 
     async with async_session() as session:
@@ -210,6 +210,11 @@ async def revoke_key(agent_id: str, kid: str, request: Request):
         from datetime import datetime, timezone
 
         key.revoked_at = datetime.now(timezone.utc)
+        # Bump token_version so in-flight JWTs issued before this
+        # revocation are refused by version-aware verifiers (v0.5 §6.10).
+        # The natural pair with key revocation — same trigger, same
+        # response.
+        agent.token_version = (agent.token_version or 0) + 1
         await session.commit()
 
     return {"status": "revoked", "kid": kid}

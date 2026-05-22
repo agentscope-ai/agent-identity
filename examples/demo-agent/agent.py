@@ -1,5 +1,5 @@
 """
-Demo: AIP agent with subcommands that exercise the approval workflow.
+Demo: AgentID agent with subcommands that exercise the approval workflow.
 
 Subcommands:
   whoami                             authenticate to the hub and print identity
@@ -9,17 +9,17 @@ Subcommands:
   demo                               run a scripted sequence (default)
 
 The agent's approval handling is the same for every command: on 202,
-poll the hub, retry with X-AIP-Grant once a grant is issued.
+poll the hub, retry with X-AgentID-Approval once a grant is issued.
 
-Identity is selected by AIP_IDP (default: "local"); see IDENTITY_PROFILES
+Identity is selected by AGENTID_IDP (default: "local"); see IDENTITY_PROFILES
 below for the available profiles. The hub must be started with the same
-AIP_IDP value so it trusts the matching IdP. The repo root Makefile wraps
+AGENTID_IDP value so it trusts the matching IdP. The repo root Makefile wraps
 this:  make agent whoami IDP=pre.
 
 Prerequisites:
-  1. An IdP reachable at the URL implied by AIP_IDP (local: ref-idp on :8000)
-  2. demo-hub on :8001, started with the same AIP_IDP
-  3. An identity loadable by the selected profile (~/.aip/agents/<name>/
+  1. An IdP reachable at the URL implied by AGENTID_IDP (local: ref-idp on :8000)
+  2. demo-hub on :8001, started with the same AGENTID_IDP
+  3. An identity loadable by the selected profile (~/.agentid/agents/<name>/
      for "profile:" specs, or a zip export for "zip:" specs)
 """
 
@@ -31,16 +31,16 @@ import os
 import sys
 from typing import Any
 
-from aip_identity_sdk import AIPClient, AIPIdentity
+from agent_id_client_sdk import Client, Identity
 
 HUB_URL = "http://localhost:8001"
 POLL_INTERVAL_SECONDS = 2
 POLL_TIMEOUT_SECONDS = 300
 
-# Identity source per AIP_IDP profile.
-# "profile:<name>" loads ~/.aip/agents/<name>/; "zip:<path>" loads a zip export.
+# Identity source per AGENTID_IDP profile.
+# "profile:<name>" loads ~/.agentid/agents/<name>/; "zip:<path>" loads a zip export.
 IDENTITY_PROFILES: dict[str, str] = {
-    "local": "profile:cli-agent-2",
+    "local": "profile:cli-agent",
     "pre": "zip:/Users/yilei.z/Downloads/pre-portal-agent.zip",
     "prod": "zip:/path/to/prod-agent.zip",
 }
@@ -56,7 +56,7 @@ PORTAL_URLS: dict[str, str] = {
 
 
 async def execute_action(
-    client: AIPClient,
+    client: Client,
     path: str,
     payload: dict[str, Any],
     *,
@@ -75,12 +75,13 @@ async def execute_action(
 
     body = resp.json()
     approval_id = body["approval_id"]
+    poll_url = f"{HUB_URL}{body['poll_url']}"
     via = body.get("approval_via", "hub")
     note = body.get("threshold_exceeded", "approval required")
     print(f"  {note} (approval via {via})")
     print(f"  approval_id = {approval_id}")
     if via == "idp":
-        portal = PORTAL_URLS.get(os.environ.get("AIP_IDP", "local"), "")
+        portal = PORTAL_URLS.get(os.environ.get("AGENTID_IDP", "local"), "")
         print(
             f"  → approve at {portal}" if portal else "  → approve via the IdP portal"
         )
@@ -90,13 +91,13 @@ async def execute_action(
             f"    cd examples/demo-hub && python approve.py approve {approval_id}"
         )
 
-    grant_id = await _poll_for_grant(client, approval_id)
+    grant_id = await _poll_for_grant(client, poll_url)
     print(f"  grant issued: {grant_id} — retrying {label}")
 
     retry = await client.post(
         f"{HUB_URL}{path}",
         json=payload,
-        headers={"X-AIP-Grant": grant_id},
+        headers={"X-AgentID-Approval": grant_id},
     )
     if retry.status_code != 200:
         raise RuntimeError(f"retry failed: {retry.status_code} {retry.text}")
@@ -104,8 +105,7 @@ async def execute_action(
     return retry.json()
 
 
-async def _poll_for_grant(client: AIPClient, approval_id: str) -> str:
-    poll_url = f"{HUB_URL}/aip/grants/{approval_id}"
+async def _poll_for_grant(client: Client, poll_url: str) -> str:
     deadline = asyncio.get_event_loop().time() + POLL_TIMEOUT_SECONDS
     while asyncio.get_event_loop().time() < deadline:
         resp = await client.get(poll_url)
@@ -119,31 +119,36 @@ async def _poll_for_grant(client: AIPClient, approval_id: str) -> str:
         if status == "expired":
             raise RuntimeError("approval expired")
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
-    raise TimeoutError(f"gave up waiting for approval {approval_id}")
+    raise TimeoutError(f"gave up waiting for approval at {poll_url}")
 
 
-def _new_identity() -> AIPIdentity:
-    profile = os.environ.get("AIP_IDP", "local")
+def _new_identity() -> Identity:
+    profile = os.environ.get("AGENTID_IDP", "local")
     spec = IDENTITY_PROFILES.get(profile)
     if spec is None:
         raise SystemExit(
-            f"AIP_IDP={profile!r} unknown; choose {list(IDENTITY_PROFILES)}"
+            f"AGENTID_IDP={profile!r} unknown; choose {list(IDENTITY_PROFILES)}"
         )
     kind, _, value = spec.partition(":")
     if kind == "profile":
-        return AIPIdentity.from_profile(value)
+        return Identity.from_profile(value)
     if kind == "zip":
-        return AIPIdentity.from_zip(value)
+        return Identity.from_zip(value)
     raise SystemExit(f"unknown loader kind {kind!r} in IDENTITY_PROFILES")
 
 
-def _new_client() -> AIPClient:
-    return AIPClient(_new_identity())
+def _new_client() -> Client:
+    # v0.6: demo-agent uses DPoP by default — every request carries a
+    # per-request, sender-bound proof (RFC 9449) so a leaked JWT can't
+    # be replayed from another host. The demo-hub verifier is in
+    # dpop_mode="optional" (the v0.6 default), so this is the realistic
+    # opt-in posture.
+    return Client(_new_identity(), dpop=True)
 
 
 async def cmd_whoami(args):
     identity = _new_identity()
-    client = AIPClient(identity)
+    client = Client(identity, dpop=True)
 
     print("local identity:")
     print(f"  agent_id = {identity.agent_id}")
@@ -228,7 +233,7 @@ async def cmd_demo(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AIP demo agent")
+    parser = argparse.ArgumentParser(description="AgentID demo agent")
     subparsers = parser.add_subparsers(dest="cmd")
 
     p_whoami = subparsers.add_parser(

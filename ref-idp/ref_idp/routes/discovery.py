@@ -1,4 +1,4 @@
-"""AIP discovery endpoints (well-known configuration and JWKS)."""
+"""AgentID discovery endpoints (well-known configuration and JWKS)."""
 
 import base64
 
@@ -8,28 +8,24 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 
 
-@router.get("/.well-known/aip-configuration")
-async def aip_configuration(request: Request):
-    """Return the AIP IdP configuration document."""
-    app = request.app
-    base = app.state.idp_base_url
+@router.get("/.well-known/agentid-configuration")
+async def agentid_configuration(request: Request):
+    base = request.app.state.idp_base_url
     return {
         "issuer": base,
-        "token_endpoint": f"{base}/aip/token",
-        "jwks_uri": f"{base}/.well-known/aip-jwks",
-        "registration_endpoint": f"{base}/aip/agents",
-        "activity_endpoint": f"{base}/aip/activity",
+        "token_endpoint": f"{base}/agentid/token",
+        "jwks_uri": f"{base}/.well-known/agentid-jwks",
+        "registration_endpoint": f"{base}/agentid/agents",
+        "activity_endpoint": f"{base}/agentid/activity",
         "supported_algorithms": ["EdDSA"],
-        "aip_version": "0.1",
+        "agentid_version": "0.1",
     }
 
 
-@router.get("/.well-known/aip-jwks")
-async def aip_jwks(request: Request):
-    """Return the JWKS containing the IdP's public signing key."""
-    app = request.app
-    private_key = app.state.idp_private_key
-    kid = app.state.idp_kid
+@router.get("/.well-known/agentid-jwks")
+async def agentid_jwks(request: Request):
+    private_key = request.app.state.idp_private_key
+    kid = request.app.state.idp_kid
 
     public_key = private_key.public_key()
     raw_public = public_key.public_bytes(

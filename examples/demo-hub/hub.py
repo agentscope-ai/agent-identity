@@ -1,5 +1,5 @@
 """
-Demo hub with AIP token verification and approval workflow, over three
+Demo hub with AgentID token verification and approval workflow, over three
 action endpoints to show different approval triggers:
 
 - POST /api/book-flight — amount-based threshold (e.g. > $500 needs approval)
@@ -9,17 +9,17 @@ action endpoints to show different approval triggers:
 Two approval modes are supported, auto-detected from the IdP's discovery doc:
 
 - **Local (Model 1)** — hub holds approval state; `approve.py` hits the
-  hub's /aip/grants endpoints directly.
+  hub's /agentid/approvals endpoints directly.
 - **IdP-delegated (Model 3)** — IdP advertises `approval_endpoint`;
   hub forwards the decision, IdP portal surfaces + signs it, hub verifies
   the JWT against JWKS and materializes a local grant.
 
-Agents see the same 202 + poll + X-AIP-Grant retry protocol in both modes.
+Agents see the same 202 + poll + X-AgentID-Approval retry protocol in both modes.
 
 Start: uvicorn hub:app --port 8001
-The IdP target is selected by AIP_IDP (default: "local"); see IDP_PROFILES
-below. Set AIP_IDP_URL to override with an arbitrary URL. Match this
-to the agent-side AIP_IDP so the issued tokens are trusted.
+The IdP target is selected by AGENTID_IDP (default: "local"); see IDP_PROFILES
+below. Set AGENTID_IDP_URL to override with an arbitrary URL. Match this
+to the agent-side AGENTID_IDP so the issued tokens are trusted.
 """
 
 import os
@@ -33,10 +33,18 @@ from urllib.parse import urlparse
 import httpx
 import jwt as pyjwt
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from aip_identity_verify import AIPVerifier
+from agent_id_service_sdk import (
+    Verifier,
+    build_manifest,
+    evaluate_approval_needed,
+    generate_signing_keypair,
+    merge_hub_floor,
+    sign_envelope,
+    sign_manifest,
+)
 
 # Module-level HTTP client so all hub→IdP calls share one connection pool.
 # Created in the lifespan below and closed on shutdown.
@@ -49,10 +57,50 @@ def _client() -> httpx.AsyncClient:
     return _http
 
 
+# --- Hub-envelope signing state -------------------------------------------
+#
+# Per design §5.0 + the v0.5 spec rev, hub → IdP traffic is HubJWS-signed.
+# Demo-hub generates a fresh Ed25519 keypair on startup and publishes the
+# matching JWK at its own /.well-known/agent-id-jwks. Real hubs persist
+# the key across restarts (k8s Secret, KMS, etc.) so the JWKS is stable.
+HUB_KID = "demo-hub-key-1"
+_hub_private_key: Any = None
+_hub_public_jwk: dict[str, Any] | None = None
+_hub_signed_manifest: str | None = None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _http
+    global _http, _hub_private_key, _hub_public_jwk, _hub_signed_manifest
     _http = httpx.AsyncClient(timeout=5.0)
+
+    # Mint a fresh hub signing key on each restart for the demo. Real hubs
+    # load this from a persisted secret.
+    _hub_private_key, _hub_public_jwk, _ = generate_signing_keypair(kid=HUB_KID)
+
+    # Build + sign the manifest once at startup. Manifest carries the
+    # approval_policy / approval_modes_supported / dpop_supported fields
+    # the v0.5 IdP reads at discovery time.
+    manifest = build_manifest(
+        service_id=HUB_URL,
+        namespace="demo",
+        categories_url=f"{HUB_URL}/.well-known/agent-id-activity-categories",
+        jwks_url=f"{HUB_URL}/.well-known/agent-id-jwks",
+        extra_claims={
+            "display_name": "Demo Hub",
+            "dpop_supported": True,
+            "approval_modes_supported": ["local", "delegated"],
+            "approval_mode_default": "delegated",
+            # Same DSL as HUB_FLOOR — the IdP reads this from the
+            # manifest and composes it into agent JWTs as `delegation`.
+            "approval_policy": HUB_FLOOR,
+        },
+    )
+    _hub_signed_manifest = sign_manifest(
+        manifest, private_key=_hub_private_key, kid=HUB_KID
+    )
+    print(f"[config] hub signing key minted (kid={HUB_KID})")
+
     try:
         yield
     finally:
@@ -60,11 +108,28 @@ async def lifespan(_: FastAPI):
         _http = None
 
 
+def _hub_sign_envelope(*, body: bytes) -> str:
+    """Sign a HubJWS envelope addressed to the configured IdP origin.
+
+    Used on every hub → IdP call. Re-mints the JWS per request — the
+    envelope's body_sha256 commits to *these* bytes, and jti must be unique.
+    """
+    if _hub_private_key is None:
+        raise RuntimeError("hub signing key not initialised")
+    return sign_envelope(
+        private_key=_hub_private_key,
+        kid=HUB_KID,
+        iss=HUB_URL,
+        aud=IDP_BASE_URL,
+        body=body,
+    )
+
+
 app = FastAPI(title="Demo Hub", lifespan=lifespan)
 
 HUB_URL = "http://localhost:8001"
 
-# IdP target — pick a named profile via AIP_IDP, or override with AIP_IDP_URL.
+# IdP target — pick a named profile via AGENTID_IDP, or override with AGENTID_IDP_URL.
 # Provider domain is derived from the URL so trust stays consistent.
 IDP_PROFILES = {
     "local": "http://localhost:8000",
@@ -74,14 +139,14 @@ IDP_PROFILES = {
 
 
 def _resolve_idp_url() -> tuple[str, str]:
-    explicit = os.environ.get("AIP_IDP_URL")
+    explicit = os.environ.get("AGENTID_IDP_URL")
     if explicit:
         return "custom", explicit
-    profile = os.environ.get("AIP_IDP", "local")
+    profile = os.environ.get("AGENTID_IDP", "local")
     url = IDP_PROFILES.get(profile)
     if url is None:
         raise SystemExit(
-            f"AIP_IDP={profile!r} unknown; choose {list(IDP_PROFILES)} or set AIP_IDP_URL"
+            f"AGENTID_IDP={profile!r} unknown; choose {list(IDP_PROFILES)} or set AGENTID_IDP_URL"
         )
     return profile, url
 
@@ -90,7 +155,7 @@ _profile, IDP_BASE_URL = _resolve_idp_url()
 IDP_PROVIDER = urlparse(IDP_BASE_URL).netloc
 print(f"[config] IdP profile={_profile} → {IDP_BASE_URL} (provider={IDP_PROVIDER})")
 
-verifier = AIPVerifier(
+verifier = Verifier(
     trusted_providers=[IDP_PROVIDER],
     audience=HUB_URL,
     provider_urls={IDP_PROVIDER: IDP_BASE_URL},
@@ -100,6 +165,36 @@ verifier = AIPVerifier(
 REQUIRES_APPROVAL_ABOVE = 500.0
 APPROVAL_TTL = timedelta(minutes=10)
 GRANT_TTL = timedelta(minutes=30)
+
+# Hub's own approval-policy floor — the same DSL we publish in the
+# manifest. Applied via merge_hub_floor() before evaluating each
+# request, so even an old IdP that doesn't compose `delegation` claims
+# still gets these enforced. Composition rule = most-restrictive wins.
+HUB_FLOOR = {
+    "always_require": ["file.delete"],
+    "thresholds": {
+        "flight.book": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+        "trade.execute": {"amount_usd": REQUIRES_APPROVAL_ABOVE},
+    },
+}
+
+
+def _approval_needed_for(action: str, params: dict, agent) -> tuple[bool, str | None]:
+    """Run the SDK evaluator against the agent's delegation claim merged
+    with this hub's manifest-published floor.
+
+    The IdP composes ``delegation`` from the hub's own published policy
+    (so under normal flow the floor is already included), but merging
+    again here is cheap defense-in-depth for the cases where:
+
+      * the agent's IdP is too old to compose delegation claims yet,
+      * the hub's published floor has changed since the JWT was minted,
+      * the hub doesn't fully trust the IdP's composition correctness.
+    """
+    delegation = agent.delegation if agent.delegation else None
+    merged = merge_hub_floor(delegation, HUB_FLOOR)
+    return evaluate_approval_needed(action=action, params=params, delegation=merged)
+
 
 # In-memory state.
 wallet_balance: dict[str, float] = {}  # principal_id -> balance
@@ -166,8 +261,19 @@ async def get_agent(request: Request):
     auth = request.headers.get("Authorization")
     if not auth:
         raise HTTPException(401, "Missing Authorization header")
+    # Pass HTTP request context so the Verifier can perform the DPoP
+    # binding check (RFC 9449) when the agent uses the DPoP scheme.
+    # Verifier ignores the context fields under "Bearer" — no-op cost.
+    # The verifier was constructed with the v0.6 default (dpop_mode=
+    # "optional"), so DPoP is exercised opportunistically when the
+    # client opts in.
+    request_context = {
+        "method": request.method,
+        "url": str(request.url),
+        "dpop_header": request.headers.get("DPoP", ""),
+    }
     try:
-        return await verifier.verify(auth)
+        return await verifier.verify(auth, request_context=request_context)
     except Exception as e:
         raise HTTPException(401, str(e))
 
@@ -187,7 +293,7 @@ async def _discover_idp_approval_endpoint() -> str | None:
     _idp_discovery_checked = True
     advertised = None
     try:
-        resp = await _client().get(f"{IDP_BASE_URL}/.well-known/aip-configuration")
+        resp = await _client().get(f"{IDP_BASE_URL}/.well-known/agentid-configuration")
         resp.raise_for_status()
         advertised = resp.json().get("approval_endpoint")
     except Exception as e:
@@ -195,7 +301,7 @@ async def _discover_idp_approval_endpoint() -> str | None:
     if advertised:
         from urllib.parse import urlparse
 
-        path = urlparse(advertised).path or "/aip/approvals"
+        path = urlparse(advertised).path or "/agentid/approvals"
         _idp_approval_endpoint = f"{IDP_BASE_URL.rstrip('/')}{path}"
     mode = "delegated (Model 3)" if _idp_approval_endpoint else "local (Model 1)"
     print(f"[discovery] approval mode: {mode}")
@@ -215,7 +321,20 @@ async def _delegate_to_idp(approval: ApprovalRequest) -> None:
         "payload": approval.hub_payload,
         "ttl_seconds": int(APPROVAL_TTL.total_seconds()),
     }
-    resp = await _client().post(endpoint, json=payload)
+    # Pre-serialize so we hash the exact bytes we send. httpx would re-encode
+    # if we passed `json=` and we'd lose the body_sha256 binding.
+    import json as _json
+
+    body_bytes = _json.dumps(payload).encode("utf-8")
+    jws = _hub_sign_envelope(body=body_bytes)
+    resp = await _client().post(
+        endpoint,
+        content=body_bytes,
+        headers={
+            "Authorization": f"HubJWS {jws}",
+            "Content-Type": "application/json",
+        },
+    )
     resp.raise_for_status()
     data = resp.json()
     approval.delegated = True
@@ -231,8 +350,13 @@ async def _poll_idp_for_decision(approval: ApprovalRequest) -> None:
     if endpoint is None or approval.idp_approval_id is None:
         return
     poll_url = endpoint.rstrip("/") + f"/{approval.idp_approval_id}"
+    # GET has no body; envelope commits to empty bytes.
+    jws = _hub_sign_envelope(body=b"")
     try:
-        resp = await _client().get(poll_url)
+        resp = await _client().get(
+            poll_url,
+            headers={"Authorization": f"HubJWS {jws}"},
+        )
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -356,7 +480,7 @@ def _notify_principal(approval: ApprovalRequest, principal_claim: dict) -> None:
     print(
         f"\n[notify → {target}] "
         f"{approval.action} — {approval.details} "
-        f"(approve: {HUB_URL}/aip/grants/{approval.approval_id}/approve)\n"
+        f"(approve: {HUB_URL}/agentid/approvals/{approval.approval_id}/approve)\n"
     )
 
 
@@ -412,7 +536,7 @@ def _approval_response(
         "resource": approval.resource,
         "action": approval.action,
         "details": approval.details,
-        "poll_url": f"/aip/grants/{approval.approval_id}",
+        "poll_url": f"/agentid/approvals/{approval.approval_id}",
         "expires_at": _iso(approval.expires_at),
         "approval_via": "idp" if approval.delegated else "hub",
     }
@@ -422,16 +546,16 @@ def _approval_response(
 
 
 def _consume_grant(
-    x_aip_grant: str | None, agent, action: str, amount: float | None = None
+    x_agentid_approval: str | None, agent, action: str, amount: float | None = None
 ) -> Grant | None:
     """Validate and consume a presented grant for *action*. Returns the grant if valid.
 
     Raises 403 if presented but invalid. Returns None if no grant was presented
     (caller decides whether that's OK for the request).
     """
-    if not x_aip_grant:
+    if not x_agentid_approval:
         return None
-    grant = grants.get(x_aip_grant)
+    grant = grants.get(x_agentid_approval)
     if not grant:
         raise HTTPException(403, "Unknown grant")
     if grant.agent_id != agent.agent_id:
@@ -464,15 +588,18 @@ class BookFlightRequest(BaseModel):
 async def book_flight(
     body: BookFlightRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     agent = await get_agent(request)
     principal_id = agent.principal.get("id", "")
     balance = wallet_balance.setdefault(principal_id, STARTING_BALANCE)
     action = "flight.book"
 
-    grant = _consume_grant(x_aip_grant, agent, action, amount=body.amount)
-    if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
+    grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
+    needed, threshold_reason = _approval_needed_for(
+        action, {"amount_usd": body.amount}, agent
+    )
+    if grant is not None or not needed:
         wallet_balance[principal_id] = balance - body.amount
         return {
             "status": "booked",
@@ -493,7 +620,7 @@ async def book_flight(
             "refundable": body.refundable,
             "currency": "USD",
         },
-        reason=f"Flight cost exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        reason=threshold_reason or "Booking requires approval per hub policy",
         summary=f"Book flight to {body.destination} for ${body.amount:,.2f}",
         facts=[
             {"label": "Destination", "value": body.destination},
@@ -505,10 +632,7 @@ async def book_flight(
             {"label": "Refundable", "value": "Yes" if body.refundable else "No"},
         ],
     )
-    return _approval_response(
-        approval,
-        threshold_note=f"requires_confirmation_above: {REQUIRES_APPROVAL_ABOVE}",
-    )
+    return _approval_response(approval, threshold_note=threshold_reason or "")
 
 
 class DeleteFileRequest(BaseModel):
@@ -519,7 +643,7 @@ class DeleteFileRequest(BaseModel):
 async def delete_file(
     body: DeleteFileRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     """Destructive action — always requires approval, regardless of amount.
 
@@ -529,27 +653,32 @@ async def delete_file(
     agent = await get_agent(request)
     action = "file.delete"
 
-    grant = _consume_grant(x_aip_grant, agent, action)
-    if grant is not None:
-        allowed_path = grant.constraints.get("path")
-        if allowed_path and allowed_path != body.path:
-            raise HTTPException(
-                403,
-                f"Grant allows deleting {allowed_path}, not {body.path}",
-            )
-        return {
-            "status": "deleted",
-            "path": body.path,
-            "grant_id": grant.grant_id,
-        }
+    grant = _consume_grant(x_agentid_approval, agent, action)
+    needed, reason = _approval_needed_for(action, {"path": body.path}, agent)
+    if grant is not None or not needed:
+        if grant is not None:
+            allowed_path = grant.constraints.get("path")
+            if allowed_path and allowed_path != body.path:
+                raise HTTPException(
+                    403,
+                    f"Grant allows deleting {allowed_path}, not {body.path}",
+                )
+            return {
+                "status": "deleted",
+                "path": body.path,
+                "grant_id": grant.grant_id,
+            }
+        # Policy didn't require approval (e.g., principal opted out via
+        # never_require) AND no grant was provided — execute directly.
+        return {"status": "deleted", "path": body.path, "grant_id": None}
 
-    # No threshold path for destructive actions — always delegate.
+    # Policy requires approval (default for file.delete via HUB_FLOOR.always_require).
     approval = await _start_approval(
         agent,
         resource="/api/delete-file",
         action=action,
         details={"path": body.path},
-        reason="Destructive action — always requires principal approval",
+        reason=reason or "Destructive action — requires principal approval",
         summary=f"Delete file: {body.path}",
         facts=[
             {"label": "Path", "value": body.path},
@@ -573,15 +702,18 @@ class TradeRequest(BaseModel):
 async def trade(
     body: TradeRequest,
     request: Request,
-    x_aip_grant: str | None = Header(default=None),
+    x_agentid_approval: str | None = Header(default=None),
 ):
     agent = await get_agent(request)
     principal_id = agent.principal.get("id", "")
     balance = wallet_balance.setdefault(principal_id, STARTING_BALANCE)
     action = "trade.execute"
 
-    grant = _consume_grant(x_aip_grant, agent, action, amount=body.amount)
-    if grant is not None or body.amount <= REQUIRES_APPROVAL_ABOVE:
+    grant = _consume_grant(x_agentid_approval, agent, action, amount=body.amount)
+    needed, threshold_reason = _approval_needed_for(
+        action, {"amount_usd": body.amount}, agent
+    )
+    if grant is not None or not needed:
         if body.side == "buy":
             wallet_balance[principal_id] = balance - body.amount
         else:
@@ -605,7 +737,7 @@ async def trade(
             "side": body.side,
             "currency": "USD",
         },
-        reason=f"Trade amount exceeds confirmation threshold ({REQUIRES_APPROVAL_ABOVE} USD)",
+        reason=threshold_reason or "Trade requires approval per hub policy",
         summary=f"{body.side.upper()} ${body.amount:,.2f} of {body.pair}",
         facts=[
             {"label": "Pair", "value": body.pair},
@@ -617,10 +749,7 @@ async def trade(
             },
         ],
     )
-    return _approval_response(
-        approval,
-        threshold_note=f"requires_confirmation_above: {REQUIRES_APPROVAL_ABOVE}",
-    )
+    return _approval_response(approval, threshold_note=threshold_reason or "")
 
 
 # -- Grant endpoints (spec 7.6.6) -------------------------------------------
@@ -643,7 +772,7 @@ def _serialize_grant(grant: Grant) -> dict:
     }
 
 
-@app.get("/aip/grants/{approval_id}")
+@app.get("/agentid/approvals/{approval_id}")
 async def poll_grant(approval_id: str, request: Request):
     agent = await get_agent(request)
     approval = approvals.get(approval_id)
@@ -685,7 +814,7 @@ class ApproveRequest(BaseModel):
     max_amount: float | None = None
 
 
-@app.post("/aip/grants/{approval_id}/approve")
+@app.post("/agentid/approvals/{approval_id}/approve")
 async def approve(approval_id: str, body: ApproveRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -739,7 +868,7 @@ class DenyRequest(BaseModel):
     reason: str = "Denied by principal"
 
 
-@app.post("/aip/grants/{approval_id}/deny")
+@app.post("/agentid/approvals/{approval_id}/deny")
 async def deny(approval_id: str, body: DenyRequest | None = None):
     approval = approvals.get(approval_id)
     if not approval:
@@ -759,7 +888,7 @@ async def deny(approval_id: str, body: DenyRequest | None = None):
     return {"approval_id": approval_id, "status": "denied", "reason": body.reason}
 
 
-@app.get("/aip/grants")
+@app.get("/agentid/approvals")
 async def list_grants(principal_id: str | None = None, status: str | None = None):
     items = []
     for approval in approvals.values():
@@ -801,11 +930,36 @@ async def whoami(request: Request):
     }
 
 
-@app.get("/.well-known/aip-hub")
+@app.get("/.well-known/agentid-hub")
 async def hub_discovery():
     return {
         "service_id": HUB_URL,
         "trusted_providers": [IDP_PROVIDER],
         "local_mode": False,
-        "aip_version": "1.0",
+        "agentid_version": "1.0",
     }
+
+
+@app.get("/.well-known/agent-id-jwks")
+async def hub_jwks():
+    """Publish the hub's signing key(s) so the IdP / activity service can
+    verify HubJWS envelopes and the manifest's JWS signature."""
+    if _hub_public_jwk is None:
+        raise HTTPException(503, "hub signing key not initialised")
+    return {"keys": [_hub_public_jwk]}
+
+
+@app.get("/.well-known/agent-id-manifest")
+async def hub_manifest():
+    """Serve the hub's JWS-signed activity manifest (compact serialization).
+
+    The IdP's HubManifestFetcher fetches this URL during auto-discovery,
+    verifies the signature against /.well-known/agent-id-jwks, and extracts
+    the published approval_policy / dpop_supported / etc. into the
+    agentid_trusted_hub row."""
+    if _hub_signed_manifest is None:
+        raise HTTPException(503, "hub manifest not initialised")
+    return PlainTextResponse(
+        _hub_signed_manifest,
+        media_type="application/jose",
+    )

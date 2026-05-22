@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     func,
@@ -40,6 +41,11 @@ class Agent(Base):
     name = Column(String, nullable=False)
     principal_id = Column(String, ForeignKey("principals.id"), nullable=False)
     metadata_json = Column(Text, nullable=True)
+    # Bumped on key revocation. JWTs carry this value as a claim;
+    # resource-server verifiers refuse JWTs below the agent's current
+    # version — kills in-flight tokens that would otherwise remain
+    # valid until TTL. See v0.5 spec §6.10.
+    token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
     principal = relationship("Principal", back_populates="agents")

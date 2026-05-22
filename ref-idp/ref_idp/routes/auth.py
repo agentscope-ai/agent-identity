@@ -22,7 +22,7 @@ from sqlalchemy import select
 from ref_idp.config import settings
 from ref_idp.models.database import Principal, async_session
 
-router = APIRouter(prefix="/aip/auth")
+router = APIRouter(prefix="/auth")
 
 # ---------------------------------------------------------------------------
 # In-memory stores for pending OAuth flows
@@ -396,7 +396,7 @@ async def register_principal(body: RegisterPrincipalRequest, request: Request):
         )
         if existing_result.scalar_one_or_none():
             raise HTTPException(
-                409, "Principal already exists. Use /aip/auth/login instead."
+                409, "Principal already exists. Use /agentid/auth/login instead."
             )
 
         principal_id = str(uuid.uuid4())

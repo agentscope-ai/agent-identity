@@ -19,7 +19,7 @@ IDP ?= local
 HUB_DIR := examples/demo-hub
 AGENT_DIR := examples/demo-agent
 
-ENV := AIP_IDP=$(IDP)
+ENV := AGENTID_IDP=$(IDP)
 
 # `make agent <sub> [args...]` — pass everything after `agent` straight to
 # agent.py, and turn each word into a no-op target so Make doesn't try to

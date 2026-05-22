@@ -1,6 +1,6 @@
 # Approval Scenarios
 
-Companion to the AIP protocol specification (§7.6 Authorization Grants & Approval Workflows). **Non-normative** — this document does not define requirements. Its job is to ground the two approval models in a realistic deployment so readers understand *why* the protocol is shaped the way it is.
+Companion to the AgentID protocol specification (§7.6 Authorization Grants & Approval Workflows). **Non-normative** — this document does not define requirements. Its job is to ground the two approval models in a realistic deployment so readers understand *why* the protocol is shaped the way it is.
 
 One scenario — **Rita at Acme** — is documented here as the canonical illustration of IdP-delegated approval (spec §7.6.7). More scenarios may be added over time.
 
@@ -8,9 +8,9 @@ One scenario — **Rita at Acme** — is documented here as the canonical illust
 
 ## 1. The Setting
 
-**Rita** is a senior engineer at **Acme Corp**. Acme runs its own AIP identity provider at `idp.acme.com`, operated by Acme's identity team and integrated with the company's corporate SSO. Every Acme employee already has an account on it.
+**Rita** is a senior engineer at **Acme Corp**. Acme runs its own AgentID identity provider at `idp.acme.com`, operated by Acme's identity team and integrated with the company's corporate SSO. Every Acme employee already has an account on it.
 
-Three internal platform teams each run their own AIP hub:
+Three internal platform teams each run their own AgentID hub:
 
 | Hub | Team | What it gates |
 |---|---|---|
@@ -34,7 +34,7 @@ Monday morning. Rita's agents quietly get work done:
 - `analytics-bot` runs `SELECT COUNT(*) FROM orders WHERE region='us-west'` — `data-hub` permits non-PII reads.
 - `incident-bot` pulls CPU graphs for `prod-us-east` — `obs-hub` freely allows dashboards.
 
-No approval flow engages. Each hub evaluates its policy against the token's claims and decides locally. This is the baseline AIP path — Layer 1 claims + hub-side enforcement, no human in the loop.
+No approval flow engages. Each hub evaluates its policy against the token's claims and decides locally. This is the baseline AgentID path — Layer 1 claims + hub-side enforcement, no human in the loop.
 
 ## 3. The Approval Path (§7.6.7 Model 3)
 
@@ -50,7 +50,7 @@ Content-Type: application/json
 
 {
   "hub_id": "https://deploy-hub.acme.com",
-  "agent_id": "aip:acme.com:agent_deploy_bot_rita",
+  "agent_id": "agentid:acme.com:agent_deploy_bot_rita",
   "resource": "/api/deploy",
   "action": "deploy.execute",
   "details": {
@@ -77,7 +77,7 @@ Behind the scenes:
    ```json
    {
      "iss": "https://idp.acme.com",
-     "sub": "aip:acme.com:agent_deploy_bot_rita",
+     "sub": "agentid:acme.com:agent_deploy_bot_rita",
      "aud": "https://deploy-hub.acme.com",
      "type": "approval_decision",
      "approval_id": "apr_abc123",
@@ -107,7 +107,7 @@ This is the question the scenario is built to answer. Of every place Rita could 
 
 ### Per-hub approval portals
 
-DevOps builds an approval UI. Data builds another. SRE builds another. Rita gets three inboxes, three auth flows, three UIs. Her manager configuring PTO coverage would need to do it in three places. At Acme's eventual scale (tens of hubs as more teams adopt AIP) this collapses under its own weight.
+DevOps builds an approval UI. Data builds another. SRE builds another. Rita gets three inboxes, three auth flows, three UIs. Her manager configuring PTO coverage would need to do it in three places. At Acme's eventual scale (tens of hubs as more teams adopt AgentID) this collapses under its own weight.
 
 ### Slack bot approvals
 
@@ -137,7 +137,7 @@ Extra vendor. Extra trust root. Extra contract. Every hub needs another integrat
 
 ## 5. The Architectural Line This Scenario Preserves
 
-The reason IdP-delegated approval doesn't collapse AIP's federation story is the split it holds:
+The reason IdP-delegated approval doesn't collapse AgentID's federation story is the split it holds:
 
 - **Hubs decide policy.** Only `deploy-hub` knew that `prod-us-west` was out of scope; only `data-hub` knows which tables are PII. The hub decides *when* approval is needed and *what* constraints attach to the resulting grant.
 - **The IdP decides who decides.** It knows the principal, the device, the backup approver. It routes the decision and signs it. It does not evaluate the policy itself.

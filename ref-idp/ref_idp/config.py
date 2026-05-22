@@ -20,13 +20,13 @@ class Settings:
     def __post_init__(self):
         """Override defaults from environment variables."""
         env_map = {
-            "AIP_DATABASE_URL": "database_url",
-            "AIP_IDP_DOMAIN": "idp_domain",
-            "AIP_IDP_BASE_URL": "idp_base_url",
-            "AIP_IDP_SIGNING_KEY_PATH": "idp_signing_key_path",
-            "AIP_TOKEN_TTL_SECONDS": "token_ttl_seconds",
-            "AIP_GITHUB_CLIENT_ID": "github_client_id",
-            "AIP_GITHUB_CLIENT_SECRET": "github_client_secret",
+            "REF_AGENT_IDP_DATABASE_URL": "database_url",
+            "REF_AGENT_IDP_DOMAIN": "idp_domain",
+            "REF_AGENT_IDP_BASE_URL": "idp_base_url",
+            "REF_AGENT_IDP_SIGNING_KEY_PATH": "idp_signing_key_path",
+            "REF_AGENT_IDP_TOKEN_TTL_SECONDS": "token_ttl_seconds",
+            "REF_AGENT_IDP_GITHUB_CLIENT_ID": "github_client_id",
+            "REF_AGENT_IDP_GITHUB_CLIENT_SECRET": "github_client_secret",
         }
         for env_var, attr in env_map.items():
             value = os.environ.get(env_var)
