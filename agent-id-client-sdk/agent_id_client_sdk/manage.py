@@ -13,6 +13,7 @@ Typical usage:
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -49,10 +50,17 @@ def sign_token_request(
     audience: str,
     timestamp: str,
 ) -> str:
-    """Sign a token request message. Returns hex-encoded Ed25519 signature."""
+    """Sign a token request; returns the base64url (no padding) signature.
+
+    Matches the canonical ``Identity.sign_token_request`` encoding the ModelScope
+    Agent IdP expects (it base64url-decodes the signature). Previously hex —
+    keep this in lockstep with ``Identity`` so the two signers can't diverge.
+    """
     private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
     message = f"{agent_id}|{kid}|{audience}|{timestamp}".encode()
-    return private_key.sign(message).hex()
+    return (
+        base64.urlsafe_b64encode(private_key.sign(message)).rstrip(b"=").decode("ascii")
+    )
 
 
 # ---------------------------------------------------------------------------

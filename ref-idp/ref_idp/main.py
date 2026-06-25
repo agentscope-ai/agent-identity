@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ref_idp.config import settings
 from ref_idp.crypto.keys import compute_kid
 from ref_idp.models.database import init_db
-from ref_idp.routes import agents, auth, discovery, token
+from ref_idp.routes import agents, auth, discovery, hub_apps, token
 
 app = FastAPI(title="AgentID reference IdP", version="0.1.0")
 
@@ -22,11 +22,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers — single mount under /agentid.
-app.include_router(discovery.router)
+# Mounted to mirror ModelScope's OpenAPI paths. Discovery + token live under
+# /openapi/v1/agent_id (singular); CRUD under /openapi/v1 (router prefixes
+# /agent_ids, /hub_apps). The auth router (dev principal bootstrap / OAuth)
+# stays at /agentid — it has no ModelScope equivalent (ModelScope uses the
+# user's account AccessToken).
+app.include_router(discovery.router, prefix="/openapi/v1/agent_id")
+app.include_router(token.router, prefix="/openapi/v1/agent_id")
+app.include_router(agents.router, prefix="/openapi/v1")
+app.include_router(hub_apps.router, prefix="/openapi/v1")
 app.include_router(auth.router, prefix="/agentid")
-app.include_router(agents.router, prefix="/agentid")
-app.include_router(token.router, prefix="/agentid")
 
 
 @app.on_event("startup")
@@ -64,3 +69,4 @@ async def startup():
     app.state.idp_domain = settings.idp_domain
     app.state.idp_base_url = settings.idp_base_url
     app.state.token_ttl_seconds = settings.token_ttl_seconds
+    app.state.dpop_enabled = settings.dpop_enabled

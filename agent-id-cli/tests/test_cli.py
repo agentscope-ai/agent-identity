@@ -51,7 +51,9 @@ def test_crypto_generate_keypair():
 
 
 def test_crypto_sign_and_verify():
-    """Verify signing produces a valid hex signature."""
+    """Verify signing produces a valid base64url signature."""
+    import base64
+
     from agent_id_cli.crypto import (
         generate_keypair,
         sign_token_request,
@@ -63,8 +65,9 @@ def test_crypto_sign_and_verify():
     sig = sign_token_request(
         priv, "agent-123", kid, "https://example.com", "1700000000"
     )
-    # Ed25519 signature is 64 bytes = 128 hex chars
-    assert len(sig) == 128
+    # base64url (no padding) of a 64-byte Ed25519 signature.
+    decoded = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
+    assert len(decoded) == 64
 
 
 def test_config_paths():

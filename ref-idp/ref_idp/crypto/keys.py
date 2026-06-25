@@ -64,24 +64,18 @@ def compute_kid(public_key_bytes: bytes) -> str:
     """Compute a key ID from public key bytes.
 
     Returns the first 16 hex characters of the SHA-256 hash. Used as the
-    DB index for stored keys. For the DPoP-compatible JWK thumbprint
-    embedded in JWT ``cnf.jkt`` claims, see :func:`rfc7638_thumbprint`.
+    DB index for stored keys.
     """
     digest = hashlib.sha256(public_key_bytes).hexdigest()
     return digest[:16]
 
 
 def rfc7638_thumbprint(public_key_bytes: bytes) -> str:
-    """Compute the JWK SHA-256 thumbprint of an Ed25519 public key.
+    """Compute the RFC 7638 JWK SHA-256 thumbprint of an Ed25519 public key.
 
-    Per RFC 7638 the canonical Ed25519 JWK form is::
-
-        {"crv":"Ed25519","kty":"OKP","x":"<base64url(raw_pubkey)>"}
-
-    with members in lexicographic order, no whitespace. SHA-256 the
-    UTF-8 encoding, base64url without padding. Same value the
-    ``agent-id-service-sdk`` DPoP verifier computes; used as the JWT
-    ``cnf.jkt`` claim so DPoP-aware hubs can verify the holder.
+    Used for the JWT ``cnf.jkt`` claim when DPoP issuance is enabled — binds the
+    token to the holder (agent) key so DPoP-aware verifiers (RFC 9449) can check
+    proof-of-possession. Off by default (ModelScope tokens carry no cnf).
     """
     x_b64url = base64.urlsafe_b64encode(public_key_bytes).rstrip(b"=").decode("ascii")
     canonical = json.dumps(
@@ -91,3 +85,8 @@ def rfc7638_thumbprint(public_key_bytes: bytes) -> str:
     ).encode("utf-8")
     digest = hashlib.sha256(canonical).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def b64u_decode(s: str) -> bytes:
+    """Decode base64url, tolerating missing padding."""
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))

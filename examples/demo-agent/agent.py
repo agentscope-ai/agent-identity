@@ -138,17 +138,14 @@ def _new_identity() -> Identity:
 
 
 def _new_client() -> Client:
-    # v0.6: demo-agent uses DPoP by default — every request carries a
-    # per-request, sender-bound proof (RFC 9449) so a leaked JWT can't
-    # be replayed from another host. The demo-hub verifier is in
-    # dpop_mode="optional" (the v0.6 default), so this is the realistic
-    # opt-in posture.
-    return Client(_new_identity(), dpop=True)
+    # ModelScope's Agent IdP issues no cnf.jkt, so DPoP is not used here —
+    # plain Bearer only. (DPoP support remains in the SDK for other IdPs.)
+    return Client(_new_identity(), dpop=False)
 
 
 async def cmd_whoami(args):
     identity = _new_identity()
-    client = Client(identity, dpop=True)
+    client = Client(identity, dpop=False)
 
     print("local identity:")
     print(f"  agent_id = {identity.agent_id}")

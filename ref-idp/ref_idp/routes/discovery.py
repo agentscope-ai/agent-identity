@@ -1,4 +1,8 @@
-"""AgentID discovery endpoints (well-known configuration and JWKS)."""
+"""AgentID discovery endpoints — ModelScope shape (public, no auth).
+
+Mounted under ``/openapi/v1/agent_id`` so the paths mirror ModelScope:
+``/openapi/v1/agent_id/.well-known/agentid-{configuration,jwks}``.
+"""
 
 import base64
 
@@ -11,14 +15,12 @@ router = APIRouter()
 @router.get("/.well-known/agentid-configuration")
 async def agentid_configuration(request: Request):
     base = request.app.state.idp_base_url
+    api = f"{base}/openapi/v1/agent_id"
     return {
         "issuer": base,
-        "token_endpoint": f"{base}/agentid/token",
-        "jwks_uri": f"{base}/.well-known/agentid-jwks",
-        "registration_endpoint": f"{base}/agentid/agents",
-        "activity_endpoint": f"{base}/agentid/activity",
-        "supported_algorithms": ["EdDSA"],
-        "agentid_version": "0.1",
+        "token_endpoint": f"{api}/token",
+        "jwks_uri": f"{api}/.well-known/agentid-jwks",
+        "id_token_signing_alg_values_supported": "EdDSA",
     }
 
 
@@ -27,13 +29,10 @@ async def agentid_jwks(request: Request):
     private_key = request.app.state.idp_private_key
     kid = request.app.state.idp_kid
 
-    public_key = private_key.public_key()
-    raw_public = public_key.public_bytes(
+    raw_public = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
-
-    # OKP JWK format for Ed25519
     x_b64 = base64.urlsafe_b64encode(raw_public).rstrip(b"=").decode()
 
     return {
@@ -41,9 +40,10 @@ async def agentid_jwks(request: Request):
             {
                 "kty": "OKP",
                 "crv": "Ed25519",
-                "use": "sig",
                 "kid": kid,
                 "x": x_b64,
+                "use": "sig",
+                "alg": "EdDSA",
             }
         ]
     }

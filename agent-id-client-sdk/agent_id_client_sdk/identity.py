@@ -48,9 +48,13 @@ class Identity:
             aip:example.com:agent_x        -> https://example.com
             aip:localhost:agent_x          -> http://localhost
             agentid:localhost:8000:agent_x     -> http://localhost:8000
+
+        Note: for ModelScope (``aip:identity.modelscope.cn:...``) the embedded
+        domain is NOT the API host — always pass ``idp_url`` explicitly; this
+        derivation is a best-effort fallback for self-hosted IdPs.
         """
         parts = agent_id.split(":")
-        if len(parts) < 3 or parts[0] != "agentid":
+        if len(parts) < 3 or parts[0] not in ("agentid", "aip"):
             raise ValueError(f"Cannot derive IDP URL from agent_id: {agent_id}")
         domain = ":".join(parts[1:-1])
         is_localhost = domain == "localhost" or domain.startswith("localhost:")
@@ -169,13 +173,16 @@ class Identity:
     # -- signing --------------------------------------------------------------
 
     def sign_token_request(self, audience: str, timestamp: int) -> str:
-        """Sign a token request and return the hex-encoded signature.
+        """Sign a token request and return the base64url-encoded signature.
 
-        Message format: ``{agent_id}|{kid}|{audience}|{timestamp}``
+        Message format: ``{agent_id}|{kid}|{audience}|{timestamp}`` (UTF-8).
+        The ModelScope Agent IdP expects the Ed25519 signature as base64url
+        without padding (the JOSE convention) — ``_b64u`` produces exactly
+        that. The signed bytes are identical regardless of encoding.
         """
         message = f"{self._agent_id}|{self._kid}|{audience}|{timestamp}"
         signature = self._private_key.sign(message.encode())
-        return signature.hex()
+        return _b64u(signature)
 
     def public_jwk(self) -> dict[str, Any]:
         """Return this identity's public key as a JWK dict.
