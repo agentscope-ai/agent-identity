@@ -15,6 +15,12 @@ class Settings:
     # Off by default to mirror ModelScope (minimal token). Toggle via
     # REF_AGENT_IDP_DPOP_ENABLED so the SDK's DPoP path can be tested locally.
     dpop_enabled: bool = False
+    # When True, the token endpoint requires the requested ``audience`` to be a
+    # registered hub ``client_id`` (POST /hub_apps) — mirroring ModelScope's
+    # strict audience enforcement. Off → any audience is accepted (loose dev).
+    # The /hub_apps endpoint is always available; this only toggles enforcement
+    # at the token endpoint. Toggle via REF_AGENT_IDP_ENFORCE_AUDIENCE.
+    enforce_audience: bool = True
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
     github_client_id: str = ""  # GitHub OAuth App client ID
     github_client_secret: str = (
@@ -30,6 +36,7 @@ class Settings:
             "REF_AGENT_IDP_SIGNING_KEY_PATH": "idp_signing_key_path",
             "REF_AGENT_IDP_TOKEN_TTL_SECONDS": "token_ttl_seconds",
             "REF_AGENT_IDP_DPOP_ENABLED": "dpop_enabled",
+            "REF_AGENT_IDP_ENFORCE_AUDIENCE": "enforce_audience",
             "REF_AGENT_IDP_GITHUB_CLIENT_ID": "github_client_id",
             "REF_AGENT_IDP_GITHUB_CLIENT_SECRET": "github_client_secret",
         }
@@ -38,7 +45,7 @@ class Settings:
             if value is not None:
                 if attr == "token_ttl_seconds":
                     value = int(value)
-                elif attr == "dpop_enabled":
+                elif attr in ("dpop_enabled", "enforce_audience"):
                     value = value.strip().lower() in ("1", "true", "yes", "on")
                 setattr(self, attr, value)
 

@@ -70,3 +70,4 @@ async def startup():
     app.state.idp_base_url = settings.idp_base_url
     app.state.token_ttl_seconds = settings.token_ttl_seconds
     app.state.dpop_enabled = settings.dpop_enabled
+    app.state.enforce_audience = settings.enforce_audience

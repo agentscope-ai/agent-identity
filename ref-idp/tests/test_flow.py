@@ -85,13 +85,24 @@ async def _register_agent(client, name: str = "agent"):
     return data["agent_id"], data["kid"], priv
 
 
+async def _register_hub(client, name: str = "Dojo") -> str:
+    """Register a hub app the ModelScope way; returns its client_id (the audience)."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": name, "app_homepage": "https://hub.example.com"},
+        headers={"Authorization": "Bearer dev-access-token"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["client_id"]
+
+
 @pytest.mark.asyncio
 async def test_full_flow(client):
     """ModelScope flow: register (JWK + AccessToken) → token → minimal claims."""
     agent_id, kid, priv = await _register_agent(client, "alice-assistant")
     assert agent_id.startswith("aip:test.aip.example:agent_")
 
-    audience = "hub_abc123"  # a hub client_id, not a URL
+    audience = await _register_hub(client)  # a registered hub client_id
     timestamp = int(time.time())
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
     signature = _b64u(priv.sign(message.encode("utf-8")))
@@ -141,7 +152,7 @@ async def test_dpop_switch_adds_cnf(client):
     app.state.dpop_enabled = True
     agent_id, kid, priv = await _register_agent(client, "dave")
 
-    audience = "hub_abc123"
+    audience = await _register_hub(client)
     timestamp = int(time.time())
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
     signature = _b64u(priv.sign(message.encode("utf-8")))
@@ -503,3 +514,82 @@ async def test_web_oauth_invalid_state(client):
         "/agentid/auth/callback/github?code=test_code&state=bogus_state",
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Hub registration + audience enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hub_registration_returns_client_id(client):
+    """POST /hub_apps mints a hub_ client_id in the ModelScope envelope."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": "Dojo", "app_homepage": "https://dojo.example.com"},
+        headers={"Authorization": "Bearer dev-access-token"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["client_id"].startswith("hub_")
+    assert data["app_name"] == "Dojo"
+    assert data["owner"]
+
+
+@pytest.mark.asyncio
+async def test_hub_registration_requires_bearer(client):
+    """Registration is gated on a bearer access token (like ModelScope)."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": "Dojo", "app_homepage": "https://dojo.example.com"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unregistered_audience_rejected_when_enforced(client):
+    """Default (enforcement on): a token for an unregistered audience is refused."""
+    agent_id, kid, priv = await _register_agent(client, "erin")
+    audience = "hub_not_registered"
+    timestamp = int(time.time())
+    message = f"{agent_id}|{kid}|{audience}|{timestamp}"
+    signature = _b64u(priv.sign(message.encode("utf-8")))
+    resp = await client.post(
+        "/openapi/v1/agent_id/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": signature,
+        },
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_enforce_audience_off_allows_any(client):
+    """With REF_AGENT_IDP_ENFORCE_AUDIENCE off, any audience is accepted."""
+    from ref_idp.main import app
+
+    app.state.enforce_audience = False
+    try:
+        agent_id, kid, priv = await _register_agent(client, "frank")
+        audience = "hub_anything"
+        timestamp = int(time.time())
+        message = f"{agent_id}|{kid}|{audience}|{timestamp}"
+        signature = _b64u(priv.sign(message.encode("utf-8")))
+        resp = await client.post(
+            "/openapi/v1/agent_id/token",
+            json={
+                "agent_id": agent_id,
+                "kid": kid,
+                "audience": audience,
+                "timestamp": timestamp,
+                "signature": signature,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["access_token"]
+    finally:
+        app.state.enforce_audience = True

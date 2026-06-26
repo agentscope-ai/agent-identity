@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from ref_idp.crypto.keys import b64u_decode, rfc7638_thumbprint, verify_signature
-from ref_idp.models.database import Agent, AgentKey, async_session
+from ref_idp.models.database import Agent, AgentKey, HubApp, async_session
 
 router = APIRouter()
 
@@ -77,6 +77,20 @@ async def issue_token(body: TokenRequest, request: Request):
     pk_bytes = bytes.fromhex(key.public_key_bytes)
     if not verify_signature(pk_bytes, message, sig_bytes):
         raise HTTPException(401, "InvalidAuthentication: signature verification failed")
+
+    # 3b. Enforce that the audience is a registered hub client_id — ModelScope
+    # strictly enforces this. Toggle with REF_AGENT_IDP_ENFORCE_AUDIENCE (the
+    # /hub_apps endpoint is always available; only this check is gated).
+    if app.state.enforce_audience:
+        async with async_session() as session:
+            hub_res = await session.execute(
+                select(HubApp).where(HubApp.client_id == body.audience)
+            )
+            if hub_res.scalar_one_or_none() is None:
+                raise HTTPException(
+                    400,
+                    "InputParameterError: audience is not a registered hub client_id",
+                )
 
     # 4. Issue a minimal JWT (iss/sub/aud/iat/exp/jti) — ModelScope shape.
     ttl = app.state.token_ttl_seconds
