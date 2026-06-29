@@ -209,5 +209,6 @@ then `dojozero-agent start <trial>` connects via AgentID.
 - ✅ Console registration UX (above) + full token→verify run against pre-prod —
   validated live 2026-06-29 (`agent_id:modelscope:agent_…`, audience `hub_748233`).
 - ✅ DojoZero CLI exposure (`dojozero-agent config --agentid-*`).
-- ⏳ Live SDK provisioning (`provision_agent` / `create_hub_app`) — only ref-idp
-  validated; the live run needs a ModelScope AccessToken.
+- ✅ Live SDK provisioning (`provision_agent` / `create_hub_app`) — validated
+  against pre-prod 2026-06-29 (registers + round-trips + self-cleans; covered by
+  the skip-by-default `test_modelscope_live.py` integration test).

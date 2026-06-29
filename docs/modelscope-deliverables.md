@@ -26,8 +26,9 @@ pre.modelscope.cn (real agent `agent_id:modelscope:agent_…` + hub `hub_748233`
 - ✅ **Agent registration console UX** — filled into Client SDK doc §1.A.
 - ✅ **DojoZero CLI exposure** — `dojozero-agent config --agentid-*` shipped
   (DojoZero #251); `connect_trial` authenticated a real token through the gateway.
-- ⏳ **Live SDK provisioning** (`provision_agent` / `create_hub_app` against
-  pre-prod) — only ref-idp validated; needs a ModelScope AccessToken.
+- ✅ **Live SDK provisioning** (`provision_agent` / `create_hub_app`) — validated
+  against pre-prod 2026-06-29; covered by a skip-by-default integration test
+  (`agent-id-client-sdk/tests/test_modelscope_live.py`).
 - ⏳ **Product doc (item 4).** AgentID value story (passwordless agent identity,
   central hub registry, short-lived tokens) with Dojo as the reference. Not started.
 
