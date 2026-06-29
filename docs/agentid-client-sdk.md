@@ -51,11 +51,16 @@ ModelScope. Two ways:
 
 ### A. ModelScope console (recommended for end users)
 
-Register the agent in the ModelScope console and download the identity profile
-(`agent.json` + `private_key`) into `~/.agentid/agents/<name>/`.
+In the ModelScope console, go to **Agent Identity → Identity management** and
+create an agent. The console shows an `openssl` command that generates `agent.pem`
+(Ed25519) locally plus the public key as a JWK — run it, paste the JWK into the
+console, and submit. You get back an `agent_id` (pre-prod format
+`agent_id:modelscope:agent_xxx`) and your chosen `kid`. Keep `agent.pem` private;
+it never leaves your host.
 
-> ⏳ **Pending:** exact console URL / download flow for the agent identity
-> profile. Fill in once ModelScope confirms the self-service UX.
+The matching **hub** (the token audience) is registered separately under **Agent
+Identity → Identity Interconnection** → "Create Application", which mints a
+`client_id` (e.g. `hub_xxxxxx`). Domain verification there is optional.
 
 ### B. Programmatic, via the provider layer
 
@@ -183,9 +188,15 @@ The DojoZero client SDK (`dojozero-client`) wraps this transparently: its
 the Bearer header on every gateway call. See the agent-side connect-to-Dojo
 skill for the end-user flow.
 
-> ⏳ **Pending:** `DojoClient`/`dojozero-agent` CLI surface to select an AgentID
-> identity (today the transport supports it but the CLI wiring is in progress).
-> Fill in once the CLI exposes `--agentid-profile` / equivalent.
+The `dojozero-agent` CLI exposes it directly (opt-in; GitHub-PAT / API-key still
+work):
+
+```bash
+dojozero-agent config --agentid-agent-id <agent_id> --agentid-kid <kid> \
+  --agentid-key <agent.pem> --agentid-idp-url <idp_url> --agentid-audience <client_id>
+```
+
+then `dojozero-agent start <trial>` connects via AgentID.
 
 ---
 
@@ -195,6 +206,8 @@ skill for the end-user flow.
   int timestamp, envelope unwrap, per-audience cache + 401-retry.
 - ✅ Provider layer (`ModelScopeProvider`, `provision_agent`) for registration.
 - ✅ Pre-prod base reachable (token endpoint live; verified 2026-06-26).
-- ⏳ Console registration UX, and a full provision→token→verify run against
-  pre-prod (needs a ModelScope AccessToken to register an agent).
-- ⏳ DojoZero CLI exposure of the AgentID identity option.
+- ✅ Console registration UX (above) + full token→verify run against pre-prod —
+  validated live 2026-06-29 (`agent_id:modelscope:agent_…`, audience `hub_748233`).
+- ✅ DojoZero CLI exposure (`dojozero-agent config --agentid-*`).
+- ⏳ Live SDK provisioning (`provision_agent` / `create_hub_app`) — only ref-idp
+  validated; the live run needs a ModelScope AccessToken.

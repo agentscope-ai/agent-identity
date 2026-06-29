@@ -47,6 +47,16 @@ print(hub.client_id)   # e.g. hub_4abb08  ← this is your audience
 > `POST /hub_apps` directly and skip that pre-check — the `client_id` is issued
 > regardless.
 
+> **Domain verification (the console "Verify" / `endpoints/validate`) is
+> optional — not required for token auth.** The `/.well-known/manifest` it
+> probes is for (a) the **verified-hub trust badge** (proving you own the
+> Service Endpoint domain) and (b) **activity reporting** (the hub's published
+> signing key) — *not* for issuing or verifying tokens. Confirmed against
+> pre-prod (2026-06-29): a hub was created and its `client_id` used to issue +
+> verify real tokens with `Verify` having failed. Dojo's gateway is passive
+> (no manifest); add one only if you later wire activity reporting or want the
+> verified-hub status.
+
 > ✅ **Pre-prod live (verified 2026-06-26).** `POST /hub_apps` answers with the
 > ModelScope envelope (`InvalidAuthentication` without a token); supply
 > `Authorization: Bearer <ModelScope AccessToken>` to register.
@@ -149,8 +159,10 @@ Both `TRUSTED_PROVIDERS` and `AUDIENCE` must be set or AgentID auth stays off
 the impersonation gap). Install the optional dependency:
 `pip install dojozero[agentid]`.
 
-> ⏳ **Pending:** real `client_id` and JWKS URL values once the hub is
-> registered against live ModelScope.
+> ✅ **Validated live (2026-06-29):** hub `hub_748233` (registered via the
+> console — *Identity Interconnection*) used as `DOJOZERO_AGENTID_AUDIENCE`; a
+> real ModelScope token verified through the gateway register path **and** at the
+> dashboard's `GET /api/agents/whoami` (deployment-level verification, no trial).
 
 ---
 
@@ -158,7 +170,7 @@ the impersonation gap). Install the optional dependency:
 
 - ✅ Verify path: issuer/audience/exp/signature, `jwks_urls` discovery bypass,
   `dpop_mode="disabled"`, minimal-claims handling.
-- ✅ DojoZero gateway wiring (`agentid_verifier_from_env`, Bearer-required).
-- ✅ Pre-prod discovery + JWKS reachable; JWKS URL confirmed (above).
-- ⏳ Live `client_id` (register hub via `POST /hub_apps` with an AccessToken).
+- ✅ DojoZero gateway wiring (`agentid_verifier_from_env`, Bearer-required) +
+  dashboard-level `/api/agents/whoami` (verifies with no trial running).
+- ✅ Pre-prod discovery + JWKS reachable; live `client_id` `hub_748233` verified.
 - ⏳ Activity reporting / approvals — deferred (ModelScope IdP exposes neither).
