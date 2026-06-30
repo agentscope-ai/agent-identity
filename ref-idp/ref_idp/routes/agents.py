@@ -1,220 +1,130 @@
-"""Agent registration and key management routes."""
+"""Agent identity registration — ModelScope-shaped (dev stand-in).
 
+Auth is a Bearer **AccessToken**. In this reference IdP (dev only), ANY
+non-empty bearer is accepted and mapped to a principal (auto-created, keyed by
+a hash of the token) — standing in for a real ModelScope account token. The
+public key is uploaded as an Ed25519 OKP JWK with a client-chosen ``kid``.
+
+Mounted at ``/openapi/v1`` with router prefix ``/agent_ids`` →
+``POST /openapi/v1/agent_ids``.
+"""
+
+import hashlib
 import json
 import secrets
 import uuid
+from datetime import datetime, timezone
 
-import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from ref_idp.crypto.keys import compute_kid
+from ref_idp.crypto.keys import b64u_decode
 from ref_idp.models.database import Agent, AgentKey, Principal, async_session
 
-router = APIRouter(prefix="/agents")
+router = APIRouter(prefix="/agent_ids")
+
+
+class PublicJWK(BaseModel):
+    kty: str
+    crv: str
+    x: str
+    kid: str
 
 
 class RegisterAgentRequest(BaseModel):
-    name: str
-    public_key: str  # hex-encoded 32-byte Ed25519 public key
-    principal_id: str
-    metadata: dict | None = None
+    agent_name: str
+    public_key: PublicJWK
+    description: str | None = None
+    key_alg_type: str | None = None
+    token_expire_time: int | None = None
 
 
-class AddKeyRequest(BaseModel):
-    public_key: str  # hex-encoded
+def _bearer(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "InvalidAuthentication: missing bearer access token")
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(401, "InvalidAuthentication: empty access token")
+    return token
 
 
-def _verify_management_token(request: Request) -> dict:
-    """Verify the Authorization header contains a valid management token.
-
-    Returns the decoded token payload.
-    """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(401, "Missing or invalid Authorization header")
-
-    token = auth_header.split(" ", 1)[1]
-    app = request.app
-    public_key = app.state.idp_private_key.public_key()
-
-    try:
-        payload = pyjwt.decode(
-            token,
-            public_key,
-            algorithms=["EdDSA"],
-            options={"verify_aud": False},
+async def _principal_for_token(session, token: str) -> Principal:
+    """Map an AccessToken to a principal, auto-creating one in dev."""
+    ext = "accesstoken:" + hashlib.sha256(token.encode()).hexdigest()[:12]
+    res = await session.execute(select(Principal).where(Principal.external_id == ext))
+    principal = res.scalar_one_or_none()
+    if principal is None:
+        principal = Principal(
+            id=str(uuid.uuid4()), type="user", external_id=ext, name="dev-user"
         )
-    except pyjwt.InvalidTokenError as e:
-        raise HTTPException(401, f"Invalid management token: {e}")
-
-    if payload.get("type") != "management":
-        raise HTTPException(403, "Token is not a management token")
-
-    return payload
+        session.add(principal)
+        await session.flush()
+    return principal
 
 
 @router.post("")
 async def register_agent(body: RegisterAgentRequest, request: Request):
-    """Register a new agent under a principal."""
-    token_payload = _verify_management_token(request)
+    """Register an agent's public key; returns its assigned ``aip:`` identity."""
+    token = _bearer(request)
 
-    # The principal in the token must match the requested principal_id
-    if token_payload["sub"] != body.principal_id:
+    jwk = body.public_key
+    if jwk.kty != "OKP" or jwk.crv != "Ed25519":
         raise HTTPException(
-            403, "Token principal does not match requested principal_id"
+            400, "InputParameterError: public_key must be OKP / Ed25519"
         )
-
-    # Validate public key hex
     try:
-        pk_bytes = bytes.fromhex(body.public_key)
+        pk_bytes = b64u_decode(jwk.x)
         if len(pk_bytes) != 32:
-            raise ValueError("Public key must be 32 bytes")
-    except ValueError as e:
-        raise HTTPException(400, f"Invalid public key: {e}")
+            raise ValueError
+    except Exception:
+        raise HTTPException(
+            400, "InputParameterError: public_key.x must be a 32-byte base64url value"
+        )
 
     app = request.app
     domain = app.state.idp_domain
-    random_part = "agent_" + secrets.token_hex(4)
-    agent_id = f"agentid:{domain}:{random_part}"
-    kid = compute_kid(pk_bytes)
+    agent_id = f"aip:{domain}:agent_{secrets.token_hex(6)}"
+    kid = jwk.kid  # client-chosen; echoed back
 
+    created = datetime.now(timezone.utc)
     async with async_session() as session:
-        # Verify principal exists
-        result = await session.execute(
-            select(Principal).where(Principal.id == body.principal_id)
-        )
-        principal = result.scalar_one_or_none()
-        if not principal:
-            raise HTTPException(404, "Principal not found")
-
-        db_agent_id = str(uuid.uuid4())
+        principal = await _principal_for_token(session, token)
+        db_id = str(uuid.uuid4())
         agent = Agent(
-            id=db_agent_id,
+            id=db_id,
             agent_id=agent_id,
-            name=body.name,
-            principal_id=body.principal_id,
-            metadata_json=json.dumps(body.metadata) if body.metadata else None,
+            name=body.agent_name,
+            principal_id=principal.id,
+            metadata_json=(
+                json.dumps({"description": body.description})
+                if body.description
+                else None
+            ),
         )
         session.add(agent)
-
-        key = AgentKey(
-            id=str(uuid.uuid4()),
-            agent_id=db_agent_id,
-            kid=kid,
-            public_key_bytes=body.public_key,
-            is_active=True,
-        )
-        session.add(key)
-        await session.commit()
-
-    return {"agent_id": agent_id, "kid": kid}
-
-
-@router.get("/{agent_id:path}")
-async def get_agent(agent_id: str):
-    """Get agent public info."""
-    async with async_session() as session:
-        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
-        agent = result.scalar_one_or_none()
-        if not agent:
-            raise HTTPException(404, "Agent not found")
-
-        # Fetch principal type
-        p_result = await session.execute(
-            select(Principal).where(Principal.id == agent.principal_id)
-        )
-        principal = p_result.scalar_one_or_none()
-
-        # Fetch active keys
-        keys_result = await session.execute(
-            select(AgentKey).where(
-                AgentKey.agent_id == agent.id,
-                AgentKey.is_active == True,
+        session.add(
+            AgentKey(
+                id=str(uuid.uuid4()),
+                agent_id=db_id,
+                kid=kid,
+                public_key_bytes=pk_bytes.hex(),
+                is_active=True,
             )
         )
-        keys = keys_result.scalars().all()
+        await session.commit()
 
     return {
-        "agent_id": agent.agent_id,
-        "name": agent.name,
-        "principal_type": principal.type if principal else None,
-        "public_keys": [{"kid": k.kid, "public_key": k.public_key_bytes} for k in keys],
-        "created_at": str(agent.created_at),
+        "success": True,
+        "request_id": str(uuid.uuid4()),
+        "data": {
+            "agent_id": agent_id,
+            "agent_name": body.agent_name,
+            "kid": kid,
+            "public_key": jwk.model_dump(),
+            "token_expire_time": body.token_expire_time or app.state.token_ttl_seconds,
+            "status": "active",
+            "create_time": created.isoformat(),
+        },
     }
-
-
-@router.post("/{agent_id:path}/keys")
-async def add_key(agent_id: str, body: AddKeyRequest, request: Request):
-    """Add a new public key to an agent."""
-    token_payload = _verify_management_token(request)
-
-    try:
-        pk_bytes = bytes.fromhex(body.public_key)
-        if len(pk_bytes) != 32:
-            raise ValueError("Public key must be 32 bytes")
-    except ValueError as e:
-        raise HTTPException(400, f"Invalid public key: {e}")
-
-    kid = compute_kid(pk_bytes)
-
-    async with async_session() as session:
-        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
-        agent = result.scalar_one_or_none()
-        if not agent:
-            raise HTTPException(404, "Agent not found")
-
-        if agent.principal_id != token_payload["sub"]:
-            raise HTTPException(403, "Not authorized for this agent")
-
-        key = AgentKey(
-            id=str(uuid.uuid4()),
-            agent_id=agent.id,
-            kid=kid,
-            public_key_bytes=body.public_key,
-            is_active=True,
-        )
-        session.add(key)
-        await session.commit()
-
-    return {"kid": kid}
-
-
-@router.delete("/{agent_id:path}/keys/{kid}")
-async def revoke_key(agent_id: str, kid: str, request: Request):
-    """Revoke an agent's public key."""
-    token_payload = _verify_management_token(request)
-
-    async with async_session() as session:
-        result = await session.execute(select(Agent).where(Agent.agent_id == agent_id))
-        agent = result.scalar_one_or_none()
-        if not agent:
-            raise HTTPException(404, "Agent not found")
-
-        if agent.principal_id != token_payload["sub"]:
-            raise HTTPException(403, "Not authorized for this agent")
-
-        key_result = await session.execute(
-            select(AgentKey).where(
-                AgentKey.agent_id == agent.id,
-                AgentKey.kid == kid,
-                AgentKey.is_active == True,
-            )
-        )
-        key = key_result.scalar_one_or_none()
-        if not key:
-            raise HTTPException(404, "Active key not found")
-
-        key.is_active = False
-        from datetime import datetime, timezone
-
-        key.revoked_at = datetime.now(timezone.utc)
-        # Bump token_version so in-flight JWTs issued before this
-        # revocation are refused by version-aware verifiers (v0.5 §6.10).
-        # The natural pair with key revocation — same trigger, same
-        # response.
-        agent.token_version = (agent.token_version or 0) + 1
-        await session.commit()
-
-    return {"status": "revoked", "kid": kid}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import tempfile
 from pathlib import Path
@@ -47,19 +48,20 @@ def test_from_profile_loads_identity():
         assert identity.idp_url == "https://idp.example.com"
 
 
-def test_sign_token_request_produces_hex():
+def test_sign_token_request_produces_base64url():
     with tempfile.TemporaryDirectory() as tmp:
         agent_dir, private_key = _make_agent_dir(Path(tmp))
         identity = Identity.from_profile(agent_dir)
 
-        sig_hex = identity.sign_token_request("https://hub.example.com", 1700000000)
-        sig_bytes = bytes.fromhex(sig_hex)
+        # ModelScope audience is a hub client_id, not a URL.
+        sig_b64 = identity.sign_token_request("hub_abc123", 1700000000)
 
-        # Ed25519 signatures are 64 bytes.
+        # base64url without padding; decodes to a 64-byte Ed25519 signature.
+        sig_bytes = base64.urlsafe_b64decode(sig_b64 + "=" * (-len(sig_b64) % 4))
         assert len(sig_bytes) == 64
 
         # Verify the signature with the public key.
-        message = "agent-001|key-001|https://hub.example.com|1700000000".encode()
+        message = "agent-001|key-001|hub_abc123|1700000000".encode()
         public_key = private_key.public_key()
         # Raises InvalidSignature if verification fails.
         public_key.verify(sig_bytes, message)

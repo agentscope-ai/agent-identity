@@ -50,25 +50,43 @@ class Client:
             if now < expires_at - 60:  # 60-second safety margin
                 return token
 
-        # Request a new token from the IdP.
+        # Request a new token from the IdP (ModelScope Agent IdP protocol).
         timestamp = int(now)
         signature = self._identity.sign_token_request(audience, timestamp)
 
         resp = await self._http.post(
-            f"{self._identity.idp_url}/agentid/token",
+            f"{self._identity.idp_url}/agent_id/token",
             json={
                 "agent_id": self._identity.agent_id,
                 "kid": self._identity.kid,
                 "audience": audience,
-                "timestamp": str(timestamp),
+                "timestamp": timestamp,
                 "signature": signature,
             },
         )
         resp.raise_for_status()
-        data = resp.json()
+        payload = resp.json()
+        # Application-level failure on an HTTP 200 (ModelScope mostly uses
+        # real status codes, caught by raise_for_status above; this is the
+        # belt-and-suspenders path).
+        if payload.get("success") is False:
+            raise RuntimeError(
+                f"token request failed: {payload.get('code')} "
+                f"{payload.get('message', '')}".strip()
+            )
 
-        token = data["token"]
-        expires_at = float(data["expires_at"])
+        # Response envelope: {success, request_id, data: {access_token,
+        # token_type, expires_in, jti}}. expires_in is a *relative* TTL in
+        # seconds — anchor it to the request time for the cache. Guard against a
+        # malformed 200 (proxy error page, partial response) so callers get a
+        # clear error instead of a KeyError/TypeError.
+        data = payload.get("data")
+        if not isinstance(data, dict) or "access_token" not in data:
+            raise RuntimeError(
+                f"malformed token response (no data.access_token): {payload!r}"
+            )
+        token = data["access_token"]
+        expires_at = now + float(data.get("expires_in") or 0)
         self._token_cache[audience] = (token, expires_at)
         return token
 

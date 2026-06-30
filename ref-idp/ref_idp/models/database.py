@@ -66,6 +66,23 @@ class AgentKey(Base):
     agent = relationship("Agent", back_populates="keys")
 
 
+class HubApp(Base):
+    """A registered hub application (resource server) — ModelScope hub_app.
+
+    The ``client_id`` is the audience the token endpoint can enforce against
+    (see ``REF_AGENT_IDP_ENFORCE_AUDIENCE``).
+    """
+
+    __tablename__ = "hub_apps"
+
+    client_id = Column(String, primary_key=True)  # hub_<6hex>
+    app_name = Column(String, nullable=False)
+    app_homepage = Column(String, nullable=False)
+    app_logo = Column(String, nullable=True)
+    owner = Column(String, nullable=False, default="dev-user")
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+
+
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

@@ -73,6 +73,13 @@ class Verifier:
         cache_ttl: int = 3600,
         clock_skew_seconds: int = 30,
         provider_urls: dict[str, str] | None = None,
+        # Optional: provider_domain -> exact JWKS URL. When set for a domain,
+        # the verifier skips OIDC discovery and the jwks_uri path-rewrite and
+        # GETs this URL directly. Use for providers (e.g. ModelScope) whose
+        # discovery doc advertises a jwks_uri that isn't where the keys are
+        # actually served. ``audience`` for such providers is the registered
+        # hub client_id (e.g. "hub_4abb08"), not an origin URL.
+        jwks_urls: dict[str, str] | None = None,
         # --- activity reporting (all optional; reporting opt-in) ---
         activity_endpoint: str | None = None,
         event_categories: set[str] | None = None,
@@ -118,6 +125,8 @@ class Verifier:
         self._clock_skew_seconds = clock_skew_seconds
         # Optional override: provider_domain -> base URL (for local dev / non-https)
         self._provider_urls = provider_urls or {}
+        # Optional: provider_domain -> exact JWKS URL (bypasses discovery).
+        self._jwks_urls = jwks_urls or {}
         # provider_domain -> (keys_by_kid, fetched_at)
         self._jwks_cache: dict[str, tuple[dict[str, Any], float]] = {}
         # provider_domain -> activity_endpoint URL (refreshed alongside JWKS)
@@ -199,10 +208,13 @@ class Verifier:
                 Used when a token references a kid not in the cached JWKS
                 (e.g. after key rotation).
 
-        Discovery flow:
-        1. GET https://{provider_domain}/.well-known/agentid-configuration
-        2. Extract ``jwks_uri`` from the response.
-        3. GET {jwks_uri} and parse the JWKS key set.
+        Resolution:
+        * If ``jwks_urls`` has an entry for *provider_domain*, GET it directly
+          (no discovery, no rewrite).
+        * Otherwise, discovery flow:
+          1. GET https://{provider_domain}/.well-known/agentid-configuration
+          2. Extract ``jwks_uri`` from the response.
+          3. GET {jwks_uri} and parse the JWKS key set.
         """
         now = time.time()
         if not force_refresh:
@@ -213,35 +225,46 @@ class Verifier:
                     return keys
 
         async with httpx.AsyncClient() as client:
-            base = self._provider_urls.get(
-                provider_domain, f"https://{provider_domain}"
-            )
+            direct_jwks = self._jwks_urls.get(provider_domain)
+            if direct_jwks:
+                # Explicit JWKS URL configured: skip OIDC discovery and the
+                # jwks_uri path-rewrite. For providers (e.g. ModelScope) whose
+                # discovery doc advertises URLs that don't resolve to where the
+                # keys are actually served. No activity_endpoint is discovered
+                # on this path (set it via the activity_endpoint arg if needed).
+                jwks_resp = await client.get(direct_jwks)
+                jwks_resp.raise_for_status()
+                jwks_data = jwks_resp.json()
+            else:
+                base = self._provider_urls.get(
+                    provider_domain, f"https://{provider_domain}"
+                )
 
-            # Step 1: discover JWKS URI (and activity_endpoint while we're here).
-            config_url = f"{base}/.well-known/agentid-configuration"
-            config_resp = await client.get(config_url)
-            config_resp.raise_for_status()
-            config_data = config_resp.json()
-            jwks_uri = config_data["jwks_uri"]
-            activity_endpoint = config_data.get("activity_endpoint")
-            if activity_endpoint:
-                # Apply provider_url override if set (local-dev URL rewriting).
+                # Step 1: discover JWKS URI (and activity_endpoint while we're here).
+                config_url = f"{base}/.well-known/agentid-configuration"
+                config_resp = await client.get(config_url)
+                config_resp.raise_for_status()
+                config_data = config_resp.json()
+                jwks_uri = config_data["jwks_uri"]
+                activity_endpoint = config_data.get("activity_endpoint")
+                if activity_endpoint:
+                    # Apply provider_url override if set (local-dev URL rewriting).
+                    if provider_domain in self._provider_urls:
+                        path = urlparse(activity_endpoint).path or "/agentid/activity"
+                        activity_endpoint = f"{base}{path}"
+                    self._activity_endpoint_cache[provider_domain] = activity_endpoint
+
+                # Step 2: fetch JWKS.
+                # If a provider_url override is set, resolve jwks_uri relative to
+                # the override base (the discovery doc may advertise a production URL
+                # that is not reachable in local dev).
                 if provider_domain in self._provider_urls:
-                    path = urlparse(activity_endpoint).path or "/agentid/activity"
-                    activity_endpoint = f"{base}{path}"
-                self._activity_endpoint_cache[provider_domain] = activity_endpoint
+                    path = urlparse(jwks_uri).path
+                    jwks_uri = f"{base}{path}"
 
-            # Step 2: fetch JWKS.
-            # If a provider_url override is set, resolve jwks_uri relative to
-            # the override base (the discovery doc may advertise a production URL
-            # that is not reachable in local dev).
-            if provider_domain in self._provider_urls:
-                path = urlparse(jwks_uri).path
-                jwks_uri = f"{base}{path}"
-
-            jwks_resp = await client.get(jwks_uri)
-            jwks_resp.raise_for_status()
-            jwks_data = jwks_resp.json()
+                jwks_resp = await client.get(jwks_uri)
+                jwks_resp.raise_for_status()
+                jwks_data = jwks_resp.json()
 
         keys: dict[str, Any] = {}
         for key_data in jwks_data.get("keys", []):

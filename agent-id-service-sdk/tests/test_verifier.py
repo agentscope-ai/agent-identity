@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import time
 
 import jwt as pyjwt
@@ -149,3 +150,86 @@ async def test_valid_token():
     assert agent.agent_name == "TestAgent"
     assert agent.issuer == f"https://{PROVIDER_DOMAIN}"
     assert agent.capabilities == ["read", "write"]
+
+
+def _okp_jwk(public_key, kid: str = KID) -> dict:
+    raw = public_key.public_bytes_raw()
+    x = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    return {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "kid": kid,
+        "x": x,
+        "use": "sig",
+        "alg": "EdDSA",
+    }
+
+
+@pytest.mark.asyncio
+async def test_jwks_urls_bypasses_discovery(monkeypatch):
+    """ModelScope path: explicit jwks_urls, minimal claims, client_id audience.
+
+    Verifies a ModelScope-shaped token (issuer with a path, audience = hub
+    client_id, no principal/scopes/capabilities) and asserts the verifier
+    fetched ONLY the configured JWKS URL — no OIDC discovery call.
+    """
+    private_key, public_key = _make_keypair()
+
+    ms_domain = "pre.modelscope.cn"
+    jwks_url = "https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"
+    fetched_urls: list[str] = []
+
+    class _FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._data
+
+    class _FakeAsyncClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url):
+            fetched_urls.append(url)
+            return _FakeResp({"keys": [_okp_jwk(public_key)]})
+
+    monkeypatch.setattr(
+        "agent_id_service_sdk.verifier.httpx.AsyncClient", _FakeAsyncClient
+    )
+
+    verifier = Verifier(
+        trusted_providers=[ms_domain],
+        audience="hub_4abb08",
+        jwks_urls={ms_domain: jwks_url},
+    )
+
+    token = _encode_jwt(
+        private_key,
+        {
+            "sub": "aip:identity.modelscope.cn:agent_x",
+            "iss": "https://pre.modelscope.cn/openapi/v1",
+            "aud": "hub_4abb08",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 600,
+            "jti": "jti-1",
+        },
+    )
+
+    agent = await verifier.verify(f"Bearer {token}")
+    assert agent.agent_id == "aip:identity.modelscope.cn:agent_x"
+    # Minimal ModelScope JWT — absent claims degrade to clean defaults.
+    assert agent.agent_name == ""
+    assert agent.principal == {}
+    assert agent.capabilities == []
+    # Only the configured JWKS URL was fetched; discovery was skipped.
+    assert fetched_urls == [jwks_url]

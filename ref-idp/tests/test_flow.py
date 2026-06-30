@@ -6,6 +6,7 @@
 4. Decode the token and verify claims
 """
 
+import base64
 import time
 from unittest.mock import patch
 
@@ -58,141 +59,141 @@ async def client(tmp_path):
             yield ac
 
 
-@pytest.mark.asyncio
-async def test_full_flow(client):
-    """Test the complete AgentID flow: register principal, create agent, get token."""
+def _b64u(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
-    # --- Step 1: Register a principal ---
-    resp = await client.post(
-        "/agentid/auth/register",
-        json={
-            "type": "human",
-            "name": "Alice",
-            "external_id": "github:alice",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    principal_data = resp.json()
-    principal_id = principal_data["principal_id"]
-    mgmt_token = principal_data["management_token"]
-    assert principal_id
-    assert mgmt_token
 
-    # --- Step 2: Generate an agent keypair and register agent ---
-    agent_private_key = Ed25519PrivateKey.generate()
-    agent_public_bytes = agent_private_key.public_key().public_bytes(
+def _jwk(public_bytes: bytes, kid: str) -> dict:
+    return {"kty": "OKP", "crv": "Ed25519", "x": _b64u(public_bytes), "kid": kid}
+
+
+async def _register_agent(client, name: str = "agent"):
+    """Register an agent the ModelScope way: dev AccessToken + public JWK."""
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
-    agent_public_hex = agent_public_bytes.hex()
-
+    kid = "key-" + compute_kid(pub)
     resp = await client.post(
-        "/agentid/agents",
-        json={
-            "name": "alice-assistant",
-            "public_key": agent_public_hex,
-            "principal_id": principal_id,
-        },
-        headers={"Authorization": f"Bearer {mgmt_token}"},
+        "/openapi/v1/agent_ids",
+        json={"agent_name": name, "public_key": _jwk(pub, kid)},
+        headers={"Authorization": "Bearer dev-access-token"},
     )
     assert resp.status_code == 200, resp.text
-    agent_data = resp.json()
-    agent_id = agent_data["agent_id"]
-    kid = agent_data["kid"]
-    assert agent_id.startswith("agentid:test.aip.example:agent_")
-    assert kid == compute_kid(agent_public_bytes)
+    data = resp.json()["data"]
+    return data["agent_id"], data["kid"], priv
 
-    # --- Step 2b: Verify agent lookup works ---
-    resp = await client.get(f"/agentid/agents/{agent_id}")
+
+async def _register_hub(client, name: str = "Dojo") -> str:
+    """Register a hub app the ModelScope way; returns its client_id (the audience)."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": name, "app_homepage": "https://hub.example.com"},
+        headers={"Authorization": "Bearer dev-access-token"},
+    )
     assert resp.status_code == 200, resp.text
-    info = resp.json()
-    assert info["name"] == "alice-assistant"
-    assert info["principal_type"] == "human"
-    assert len(info["public_keys"]) == 1
-    assert info["public_keys"][0]["kid"] == kid
+    return resp.json()["data"]["client_id"]
 
-    # --- Step 3: Request a token ---
-    audience = "https://api.example.com"
-    timestamp = str(int(time.time()))
+
+@pytest.mark.asyncio
+async def test_full_flow(client):
+    """ModelScope flow: register (JWK + AccessToken) → token → minimal claims."""
+    agent_id, kid, priv = await _register_agent(client, "alice-assistant")
+    assert agent_id.startswith("aip:test.aip.example:agent_")
+
+    audience = await _register_hub(client)  # a registered hub client_id
+    timestamp = int(time.time())
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
-    signature = agent_private_key.sign(message.encode("utf-8"))
-    signature_hex = signature.hex()
+    signature = _b64u(priv.sign(message.encode("utf-8")))
 
     resp = await client.post(
-        "/agentid/token",
+        "/openapi/v1/agent_id/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
             "audience": audience,
             "timestamp": timestamp,
-            "signature": signature_hex,
+            "signature": signature,
         },
     )
     assert resp.status_code == 200, resp.text
-    token_data = resp.json()
-    token = token_data["token"]
-    assert token_data["expires_at"] > int(time.time())
+    env = resp.json()
+    assert env["success"] is True
+    data = env["data"]
+    assert data["token_type"] == "Bearer"
+    assert data["expires_in"] > 0
+    assert data["jti"]
 
-    # --- Step 4: Decode and verify claims ---
     claims = pyjwt.decode(
-        token, options={"verify_signature": False}, algorithms=["EdDSA"]
+        data["access_token"], options={"verify_signature": False}, algorithms=["EdDSA"]
     )
     assert claims["iss"] == "https://test.aip.example"
     assert claims["sub"] == agent_id
     assert claims["aud"] == audience
-    assert claims["agentid_version"] == "0.1"
-    assert claims["agent_name"] == "alice-assistant"
-    assert claims["principal"]["type"] == "human"
-    assert claims["principal"]["name"] == "Alice"
     assert claims["exp"] > claims["iat"]
+    assert "jti" in claims
+    # Minimal ModelScope token — no principal / cnf / agent_token_version.
+    assert "principal" not in claims
+    assert "cnf" not in claims
+    assert "agent_token_version" not in claims
+
+
+@pytest.mark.asyncio
+async def test_dpop_switch_adds_cnf(client):
+    """With REF_AGENT_IDP_DPOP_ENABLED on, the JWT carries cnf.jkt (RFC 9449).
+
+    cnf.jkt binds to the agent's holder key. Off by default (test_full_flow
+    asserts no cnf); here we flip app.state for this request.
+    """
+    from ref_idp.crypto.keys import rfc7638_thumbprint
+    from ref_idp.main import app
+
+    app.state.dpop_enabled = True
+    agent_id, kid, priv = await _register_agent(client, "dave")
+
+    audience = await _register_hub(client)
+    timestamp = int(time.time())
+    message = f"{agent_id}|{kid}|{audience}|{timestamp}"
+    signature = _b64u(priv.sign(message.encode("utf-8")))
+    resp = await client.post(
+        "/openapi/v1/agent_id/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": signature,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    claims = pyjwt.decode(
+        resp.json()["data"]["access_token"],
+        options={"verify_signature": False},
+        algorithms=["EdDSA"],
+    )
+    pub = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    assert claims["cnf"]["jkt"] == rfc7638_thumbprint(pub)
+
+    app.state.dpop_enabled = False  # reset so it doesn't leak to other tests
 
 
 @pytest.mark.asyncio
 async def test_invalid_signature_rejected(client):
-    """Token request with wrong signature should be rejected."""
+    """A signature from the wrong key is rejected with 401."""
+    agent_id, kid, _priv = await _register_agent(client, "bob")
 
-    # Register principal
-    resp = await client.post(
-        "/agentid/auth/register",
-        json={
-            "type": "human",
-            "name": "Bob",
-            "external_id": "github:bob",
-        },
-    )
-    principal_data = resp.json()
-    principal_id = principal_data["principal_id"]
-    mgmt_token = principal_data["management_token"]
-
-    # Register agent
-    agent_private_key = Ed25519PrivateKey.generate()
-    agent_public_bytes = agent_private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
-
-    resp = await client.post(
-        "/agentid/agents",
-        json={
-            "name": "bob-agent",
-            "public_key": agent_public_bytes.hex(),
-            "principal_id": principal_id,
-        },
-        headers={"Authorization": f"Bearer {mgmt_token}"},
-    )
-    agent_data = resp.json()
-    agent_id = agent_data["agent_id"]
-    kid = agent_data["kid"]
-
-    # Sign with a DIFFERENT key (wrong key)
+    audience = "hub_abc123"
+    timestamp = int(time.time())
     wrong_key = Ed25519PrivateKey.generate()
-    audience = "https://api.example.com"
-    timestamp = str(int(time.time()))
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
-    bad_signature = wrong_key.sign(message.encode("utf-8")).hex()
+    bad_signature = _b64u(wrong_key.sign(message.encode("utf-8")))
 
     resp = await client.post(
-        "/agentid/token",
+        "/openapi/v1/agent_id/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
@@ -205,57 +206,17 @@ async def test_invalid_signature_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_key_revocation(client):
-    """Revoking a key should prevent token issuance."""
+async def test_timestamp_out_of_window(client):
+    """A timestamp beyond the ±60s window is rejected with 400."""
+    agent_id, kid, priv = await _register_agent(client, "carol")
 
-    # Register principal + agent
-    resp = await client.post(
-        "/agentid/auth/register",
-        json={
-            "type": "org",
-            "name": "Acme Corp",
-            "external_id": "github:acme-org",
-        },
-    )
-    principal_data = resp.json()
-    principal_id = principal_data["principal_id"]
-    mgmt_token = principal_data["management_token"]
-
-    agent_private_key = Ed25519PrivateKey.generate()
-    agent_public_bytes = agent_private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
-
-    resp = await client.post(
-        "/agentid/agents",
-        json={
-            "name": "acme-bot",
-            "public_key": agent_public_bytes.hex(),
-            "principal_id": principal_id,
-        },
-        headers={"Authorization": f"Bearer {mgmt_token}"},
-    )
-    agent_data = resp.json()
-    agent_id = agent_data["agent_id"]
-    kid = agent_data["kid"]
-
-    # Revoke the key
-    resp = await client.delete(
-        f"/agentid/agents/{agent_id}/keys/{kid}",
-        headers={"Authorization": f"Bearer {mgmt_token}"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "revoked"
-
-    # Attempt token exchange - should fail
-    audience = "https://api.example.com"
-    timestamp = str(int(time.time()))
+    audience = "hub_abc123"
+    timestamp = int(time.time()) - 3600  # an hour old
     message = f"{agent_id}|{kid}|{audience}|{timestamp}"
-    signature = agent_private_key.sign(message.encode("utf-8")).hex()
+    signature = _b64u(priv.sign(message.encode("utf-8")))
 
     resp = await client.post(
-        "/agentid/token",
+        "/openapi/v1/agent_id/token",
         json={
             "agent_id": agent_id,
             "kid": kid,
@@ -264,26 +225,27 @@ async def test_key_revocation(client):
             "signature": signature,
         },
     )
-    assert resp.status_code == 404  # key no longer active
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_discovery_endpoints(client):
-    """Well-known endpoints should return proper configuration."""
-
-    resp = await client.get("/.well-known/agentid-configuration")
+    """Well-known endpoints return the ModelScope-shaped config + JWKS."""
+    resp = await client.get("/openapi/v1/agent_id/.well-known/agentid-configuration")
     assert resp.status_code == 200
     config = resp.json()
     assert config["issuer"] == "https://test.aip.example"
-    assert config["agentid_version"] == "0.1"
-    assert "EdDSA" in config["supported_algorithms"]
+    assert config["id_token_signing_alg_values_supported"] == "EdDSA"
+    assert config["token_endpoint"].endswith("/openapi/v1/agent_id/token")
+    assert config["jwks_uri"].endswith("/openapi/v1/agent_id/.well-known/agentid-jwks")
 
-    resp = await client.get("/.well-known/agentid-jwks")
+    resp = await client.get("/openapi/v1/agent_id/.well-known/agentid-jwks")
     assert resp.status_code == 200
     jwks = resp.json()
     assert len(jwks["keys"]) == 1
     assert jwks["keys"][0]["kty"] == "OKP"
     assert jwks["keys"][0]["crv"] == "Ed25519"
+    assert jwks["keys"][0]["alg"] == "EdDSA"
 
 
 # ---------------------------------------------------------------------------
@@ -552,3 +514,82 @@ async def test_web_oauth_invalid_state(client):
         "/agentid/auth/callback/github?code=test_code&state=bogus_state",
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Hub registration + audience enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hub_registration_returns_client_id(client):
+    """POST /hub_apps mints a hub_ client_id in the ModelScope envelope."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": "Dojo", "app_homepage": "https://dojo.example.com"},
+        headers={"Authorization": "Bearer dev-access-token"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["client_id"].startswith("hub_")
+    assert data["app_name"] == "Dojo"
+    assert data["owner"]
+
+
+@pytest.mark.asyncio
+async def test_hub_registration_requires_bearer(client):
+    """Registration is gated on a bearer access token (like ModelScope)."""
+    resp = await client.post(
+        "/openapi/v1/hub_apps",
+        json={"app_name": "Dojo", "app_homepage": "https://dojo.example.com"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_unregistered_audience_rejected_when_enforced(client):
+    """Default (enforcement on): a token for an unregistered audience is refused."""
+    agent_id, kid, priv = await _register_agent(client, "erin")
+    audience = "hub_not_registered"
+    timestamp = int(time.time())
+    message = f"{agent_id}|{kid}|{audience}|{timestamp}"
+    signature = _b64u(priv.sign(message.encode("utf-8")))
+    resp = await client.post(
+        "/openapi/v1/agent_id/token",
+        json={
+            "agent_id": agent_id,
+            "kid": kid,
+            "audience": audience,
+            "timestamp": timestamp,
+            "signature": signature,
+        },
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_enforce_audience_off_allows_any(client):
+    """With REF_AGENT_IDP_ENFORCE_AUDIENCE off, any audience is accepted."""
+    from ref_idp.main import app
+
+    app.state.enforce_audience = False
+    try:
+        agent_id, kid, priv = await _register_agent(client, "frank")
+        audience = "hub_anything"
+        timestamp = int(time.time())
+        message = f"{agent_id}|{kid}|{audience}|{timestamp}"
+        signature = _b64u(priv.sign(message.encode("utf-8")))
+        resp = await client.post(
+            "/openapi/v1/agent_id/token",
+            json={
+                "agent_id": agent_id,
+                "kid": kid,
+                "audience": audience,
+                "timestamp": timestamp,
+                "signature": signature,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["access_token"]
+    finally:
+        app.state.enforce_audience = True

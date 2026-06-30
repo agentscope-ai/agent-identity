@@ -1,127 +1,128 @@
-"""Token exchange endpoint - agent proves key ownership to get a JWT."""
+"""Token exchange endpoint — ModelScope Agent IdP protocol.
+
+The agent signs ``"{agent_id}|{kid}|{audience}|{timestamp}"`` with its Ed25519
+private key; the signature is base64url (no padding) and the timestamp is a
+Unix-epoch integer with a ±60s validity window. The IdP verifies the signature
+against the stored public key and issues a short, minimal JWT.
+
+Response is wrapped in the ModelScope envelope:
+``{"success": true, "request_id": ..., "data": {...}}``.
+"""
 
 import time
+import uuid
 
+import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from ref_idp.crypto.jwt import create_agent_token
-from ref_idp.crypto.keys import rfc7638_thumbprint, verify_signature
-from ref_idp.models.database import Agent, AgentKey, Principal, async_session
+from ref_idp.crypto.keys import b64u_decode, rfc7638_thumbprint, verify_signature
+from ref_idp.models.database import Agent, AgentKey, HubApp, async_session
 
 router = APIRouter()
 
-# Maximum allowed clock skew for timestamp validation (seconds).
-TIMESTAMP_TOLERANCE = 5 * 60
+# ModelScope: the request timestamp must be within ±60s of server time.
+TIMESTAMP_TOLERANCE = 60
 
 
 class TokenRequest(BaseModel):
     agent_id: str
     kid: str
     audience: str
-    timestamp: str  # ISO or unix timestamp as string
-    signature: str  # hex-encoded Ed25519 signature
+    timestamp: int  # Unix epoch seconds
+    signature: str  # base64url (no padding) Ed25519 signature
 
 
 @router.post("/token")
-async def exchange_token(body: TokenRequest, request: Request):
-    """Exchange a signed request for a JWT.
-
-    The agent signs the message: "{agent_id}|{kid}|{audience}|{timestamp}"
-    with its Ed25519 private key. The IdP verifies the signature against the
-    stored public key and issues a JWT signed with the IdP's own key.
-    """
+async def issue_token(body: TokenRequest, request: Request):
+    """Exchange a signed request for a short JWT (no AccessToken needed)."""
     app = request.app
 
-    # 1. Look up agent and key
+    # 1. Look up the agent and the (active) key referenced by kid.
     async with async_session() as session:
-        agent_result = await session.execute(
+        agent_res = await session.execute(
             select(Agent).where(Agent.agent_id == body.agent_id)
         )
-        agent = agent_result.scalar_one_or_none()
+        agent = agent_res.scalar_one_or_none()
         if not agent:
-            raise HTTPException(404, "Agent not found")
+            raise HTTPException(404, "ResourceNotFound: agent not registered")
 
-        key_result = await session.execute(
+        key_res = await session.execute(
             select(AgentKey).where(
                 AgentKey.agent_id == agent.id,
                 AgentKey.kid == body.kid,
-                AgentKey.is_active == True,
+                AgentKey.is_active == True,  # noqa: E712
             )
         )
-        key = key_result.scalar_one_or_none()
+        key = key_res.scalar_one_or_none()
         if not key:
-            raise HTTPException(404, "Active key not found for this agent")
+            raise HTTPException(404, "ResourceNotFound: kid not found for agent")
 
-        # Fetch principal info
-        principal_result = await session.execute(
-            select(Principal).where(Principal.id == agent.principal_id)
-        )
-        principal = principal_result.scalar_one_or_none()
-
-    # 2. Reconstruct the signed message
-    message = f"{body.agent_id}|{body.kid}|{body.audience}|{body.timestamp}"
-    message_bytes = message.encode("utf-8")
-
-    # 3. Verify signature
-    try:
-        sig_bytes = bytes.fromhex(body.signature)
-        pk_bytes = bytes.fromhex(key.public_key_bytes)
-    except ValueError:
-        raise HTTPException(400, "Invalid hex encoding in signature or key")
-
-    if not verify_signature(pk_bytes, message_bytes, sig_bytes):
-        raise HTTPException(401, "Invalid signature")
-
-    # 4. Validate timestamp (within 5 minutes)
-    try:
-        req_time = int(body.timestamp)
-    except ValueError:
-        raise HTTPException(400, "Timestamp must be a unix epoch integer (as string)")
-
+    # 2. Validate timestamp window (±60s).
     now = int(time.time())
-    if abs(now - req_time) > TIMESTAMP_TOLERANCE:
-        raise HTTPException(401, "Timestamp out of range (must be within 5 minutes)")
+    if abs(now - body.timestamp) > TIMESTAMP_TOLERANCE:
+        raise HTTPException(
+            400, "InputParameterError: timestamp outside the ±60s window"
+        )
 
-    # 5. Issue JWT
-    idp_private_key = app.state.idp_private_key
-    idp_kid = app.state.idp_kid
-    ttl = app.state.token_ttl_seconds
-
-    if principal:
-        principal_claim: dict = {
-            "type": principal.type,
-            "id": principal.id,
-            "name": principal.name,
-        }
-        if principal.notification_endpoint:
-            principal_claim["notification_endpoint"] = principal.notification_endpoint
-    else:
-        principal_claim = {"type": "unknown", "id": "", "name": ""}
-
-    # cnf.jkt: RFC 7638 thumbprint of the agent's pubkey. Makes the
-    # JWT DPoP-compatible (RFC 9449). Old clients ignore the unknown
-    # claim; new clients use it to attach DPoP proofs.
+    # 3. Verify the base64url Ed25519 signature.
+    message = f"{body.agent_id}|{body.kid}|{body.audience}|{body.timestamp}".encode(
+        "utf-8"
+    )
     try:
-        pubkey_bytes = bytes.fromhex(key.public_key_bytes)
-        cnf_claim = {"jkt": rfc7638_thumbprint(pubkey_bytes)}
-    except ValueError:
-        cnf_claim = None
+        sig_bytes = b64u_decode(body.signature)
+    except Exception:
+        raise HTTPException(400, "InputParameterError: signature is not base64url")
+    pk_bytes = bytes.fromhex(key.public_key_bytes)
+    if not verify_signature(pk_bytes, message, sig_bytes):
+        raise HTTPException(401, "InvalidAuthentication: signature verification failed")
 
-    token = create_agent_token(
-        agent_id=body.agent_id,
-        agent_name=agent.name,
-        principal=principal_claim,
-        audience=body.audience,
-        capabilities=None,
-        idp_private_key=idp_private_key,
-        idp_kid=idp_kid,
-        issuer=f"https://{app.state.idp_domain}",
-        ttl_seconds=ttl,
-        cnf=cnf_claim,
-        agent_token_version=agent.token_version or 0,
+    # 3b. Enforce that the audience is a registered hub client_id — ModelScope
+    # strictly enforces this. Toggle with REF_AGENT_IDP_ENFORCE_AUDIENCE (the
+    # /hub_apps endpoint is always available; only this check is gated).
+    if app.state.enforce_audience:
+        async with async_session() as session:
+            hub_res = await session.execute(
+                select(HubApp).where(HubApp.client_id == body.audience)
+            )
+            if hub_res.scalar_one_or_none() is None:
+                raise HTTPException(
+                    400,
+                    "InputParameterError: audience is not a registered hub client_id",
+                )
+
+    # 4. Issue a minimal JWT (iss/sub/aud/iat/exp/jti) — ModelScope shape.
+    ttl = app.state.token_ttl_seconds
+    jti = "jti-" + str(uuid.uuid4())
+    payload = {
+        "iss": app.state.idp_base_url,
+        "sub": body.agent_id,
+        "aud": body.audience,
+        "iat": now,
+        "exp": now + ttl,
+        "jti": jti,
+    }
+    # Optional DPoP holder binding (RFC 9449). Off by default to mirror
+    # ModelScope; toggle with REF_AGENT_IDP_DPOP_ENABLED. Read app.state
+    # directly (set at startup) so a wiring regression fails loudly rather than
+    # silently disabling the switch. ``pk_bytes`` was decoded above.
+    if app.state.dpop_enabled:
+        payload["cnf"] = {"jkt": rfc7638_thumbprint(pk_bytes)}
+    token = pyjwt.encode(
+        payload,
+        app.state.idp_private_key,
+        algorithm="EdDSA",
+        headers={"kid": app.state.idp_kid},
     )
 
-    expires_at = now + ttl
-    return {"token": token, "expires_at": expires_at}
+    return {
+        "success": True,
+        "request_id": str(uuid.uuid4()),
+        "data": {
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_in": ttl,
+            "jti": jti,
+        },
+    }
