@@ -182,7 +182,10 @@ Minimal config (the three that matter; the rest default):
 ```bash
 DOJOZERO_AGENTID_TRUSTED_PROVIDERS=pre.modelscope.cn          # prod: www.modelscope.cn
 DOJOZERO_AGENTID_AUDIENCE=hub_748233                          # your hub client_id, NOT a URL
-DOJOZERO_AGENTID_JWKS_URLS={"pre.modelscope.cn":"https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"}
+# single-quote the JSON so the shell / .env parser keeps its quotes (otherwise
+# json.loads rejects it). In a raw env-injection field, enter the JSON without
+# the outer single quotes.
+DOJOZERO_AGENTID_JWKS_URLS='{"pre.modelscope.cn":"https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"}'
 ```
 
 Where to set it depends on the deploy target: docker-compose loads the repo-root
