@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-id-cli"
 version = "0.2.0"
-description = "AgentID — CLI for managing AI agent identities"
+description = "AgentID CLI (PARKED — legacy native IdP; ModelScope-aware rewrite planned)"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]
