@@ -145,6 +145,13 @@ verifier = Verifier(
 )
 ```
 
+> **Audience under a third-party IdP.** The default model above uses your hub's
+> `service_id` as the audience (the IdP mints tokens with `aud = service_id`).
+> Some IdPs instead bind the audience to a registered client/app id. For
+> **ModelScope**, `aud` is your hub's registered `client_id` (e.g. `hub_748233`),
+> not your `service_id` — set `audience=` to that. See
+> [modelscope-alignment.md](./modelscope-alignment.md).
+
 Wrap it in a FastAPI dependency:
 
 ```python
