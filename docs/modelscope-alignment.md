@@ -70,7 +70,7 @@ Verifier(
 
 | 项 | 结论 |
 |---|------|
-| `sub` 格式 | = 注册返回的 agent_id `aip:identity.modelscope.cn:agent_xxx`（接口文档里 `agent_id:modelscope:...` 仅为示例笔误） |
+| `sub` 格式 | = 注册返回的 agent_id `agent_id:modelscope:agent_xxx`（线上 pre 实测如此，定为规范格式；早期文档写的 `aip:identity.modelscope.cn:...` 为旧式假设。SDK 按原值签名，故运行时两种都能用，但规范/线上签发用 `agent_id:modelscope:`） |
 | `aud` | = 已注册 `hub_app.client_id`（如 `hub_4abb08`），后端 `IssueToken` 强校验，拒绝任意 URL |
 | issuer / JWKS host | issuer 真实为上游域名（test `test.modelscope.cn`），hub 按 **domain** 配 `trusted_providers`；JWKS 经 `provider_urls`/`jwks_urls` 指向 `/openapi/v1/agent_id/.well-known/agentid-jwks` |
 | 路径单复数 | CRUD 用复数 `agent_ids`/`hub_apps`；token 与 well-known 用单数 `agent_id/...` |

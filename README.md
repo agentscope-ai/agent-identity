@@ -59,22 +59,20 @@ sequenceDiagram
 
 ## 快速体验（本地 · 离线）
 
-用 `ref-idp` 作为 ModelScope 的本地镜像，跑通整条链路，无需网络 / AccessToken：
+用 `ref-idp` 作为 ModelScope 的本地镜像，跑通 **provision → token → verify**，无需网络 / AccessToken / IP 白名单：
 
 ```bash
-# 安装
+# 安装两个 SDK + 本地镜像
 pip install -e ref-idp/ agent-id-client-sdk/ agent-id-service-sdk/
 
 # 启动本地 IdP（ModelScope 镜像）于 :8000
-cd ref-idp && uvicorn ref_idp.main:app --port 8000
+( cd ref-idp && uvicorn ref_idp.main:app --port 8000 & )
+
+# 跑最小 quickstart：注册 hub → 注册 agent → 私钥换 JWT → 验签
+python examples/modelscope-quickstart/quickstart.py
 ```
 
-仓库根目录的 `make` 封装了 demo-hub + demo-agent 的本地闭环（默认指向本地 `ref-idp`）：
-
-```bash
-make hub          # 启动 demo-hub（:8001），用 agent-id-service-sdk 验签
-make agent demo   # demo-agent 用私钥换 JWT 访问 hub
-```
+详见 [`examples/modelscope-quickstart/`](examples/modelscope-quickstart/)；换成真实 ModelScope 只需改 `quickstart.py` 里的 `IDP_BASE` / `ACCESS_TOKEN`，SDK 调用不变。
 
 接入**真实 ModelScope** 的完整步骤见：
 
