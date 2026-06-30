@@ -164,6 +164,35 @@ the impersonation gap). Install the optional dependency:
 > real ModelScope token verified through the gateway register path **and** at the
 > dashboard's `GET /api/agents/whoami` (deployment-level verification, no trial).
 
+### Enabling AgentID on a deployment
+
+The env above is **deployment-level, read once at startup**: the dashboard server
+builds one `Verifier` (`agentid_verifier_from_env()`) and shares it across `GET
+/api/agents/whoami` **and every trial gateway it launches**. So:
+
+- **Opt-in / all-or-nothing** — unset → AgentID OFF (legacy GitHub / api-key auth
+  unchanged); set → *every* trial under that server is AgentID-gated.
+- **One audience per server** — `DOJOZERO_AGENTID_AUDIENCE` is a single hub
+  `client_id`, so all trials verify against the same hub. Run a second server to
+  host a different hub.
+- **Restart to change** — the verifier is built at startup, not per request.
+
+Minimal config (the three that matter; the rest default):
+
+```bash
+DOJOZERO_AGENTID_TRUSTED_PROVIDERS=pre.modelscope.cn          # prod: www.modelscope.cn
+DOJOZERO_AGENTID_AUDIENCE=hub_748233                          # your hub client_id, NOT a URL
+# single-quote the JSON so the shell / .env parser keeps its quotes (otherwise
+# json.loads rejects it). In a raw env-injection field, enter the JSON without
+# the outer single quotes.
+DOJOZERO_AGENTID_JWKS_URLS='{"pre.modelscope.cn":"https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"}'
+```
+
+Where to set it depends on the deploy target: docker-compose loads the repo-root
+`.env` (`DojoZeroDeploy/.env.example` documents the block); the Aone build takes it
+from the platform's env injection (`APP-META/.../app/bin/setenv.sh` documents the
+keys). Either way the image must ship the `[agentid]` extra (`agent-id-service-sdk`).
+
 ---
 
 ## Status / gaps
