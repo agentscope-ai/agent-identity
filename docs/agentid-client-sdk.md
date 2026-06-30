@@ -80,7 +80,7 @@ provider = ModelScopeProvider(
 # Generates an Ed25519 keypair, registers the PUBLIC key, and saves the
 # profile to ~/.agentid/agents/my-agent/ (agent.json + private_key).
 registered, private_key = provision_agent(provider, "my-agent")
-print(registered.agent_id)   # aip:identity.modelscope.cn:agent_xxxx
+print(registered.agent_id)   # agent_id:modelscope:agent_xxxx
 ```
 
 Only the public JWK is uploaded; the private key stays local. `provision_agent`
@@ -112,8 +112,8 @@ identity = Identity.from_env()
 identity = Identity.from_zip("my-agent.zip")
 ```
 
-> **ModelScope `idp_url` must be explicit.** For `aip:identity.modelscope.cn:…`
-> ids the embedded domain is *not* the API host. The profile / `AGENTID_IDP_URL`
+> **ModelScope `idp_url` must be explicit.** A `agent_id:modelscope:…` id carries
+> no API host to derive from. The profile / `AGENTID_IDP_URL`
 > must carry the real OpenAPI base (e.g. `https://www.modelscope.cn/openapi/v1`).
 > `provision_agent` does this for you; if you build `Identity(...)` by hand, pass
 > `idp_url=` yourself.
@@ -173,7 +173,7 @@ jti`. No `principal`, `scopes`, `delegation`, or `cnf`.
 
 | Env var | Used by | Meaning |
 | --- | --- | --- |
-| `AGENTID_AGENT_ID` | `Identity.from_env` | `aip:identity.modelscope.cn:agent_xxx` |
+| `AGENTID_AGENT_ID` | `Identity.from_env` | `agent_id:modelscope:agent_xxx` |
 | `AGENTID_AGENT_KID` | `Identity.from_env` | Key id chosen at registration |
 | `AGENTID_AGENT_PRIVATE_KEY` | `Identity.from_env` | Hex-encoded 32-byte Ed25519 seed |
 | `AGENTID_IDP_URL` | `Identity.from_env` | OpenAPI base, e.g. `https://www.modelscope.cn/openapi/v1` |
