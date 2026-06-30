@@ -95,7 +95,7 @@ verifier = Verifier(
 )
 
 verified = await verifier.verify(authorization_header)  # "Bearer <jwt>"
-print(verified.agent_id)     # sub: aip:identity.modelscope.cn:agent_xxx
+print(verified.agent_id)     # sub: agent_id:modelscope:agent_xxx
 print(verified.issuer)       # iss
 print(verified.expires_at)   # exp (datetime)
 ```

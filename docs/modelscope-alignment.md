@@ -24,7 +24,7 @@ prod `https://www.modelscope.cn/openapi/v1`），且**已作为事实标准**。
 | # | 位置 | 现状 | 改为 |
 |---|------|------|------|
 | 1 | `sign_token_request` (L171-178) | 返回 `signature.hex()` | 返回 `_b64u(signature)`（base64url，无 padding，复用 L246 helper） |
-| 2 | `_idp_url_from_agent_id` (L39-58) | 从 agent_id 推导 IdP host，仅认 `agentid:` 前缀 | **放弃推导**：agent_id 为 `aip:identity.modelscope.cn:<id>`，内嵌域名 ≠ API host，且缺 `/openapi/v1/agent_id` 路径。`idp_url` 改为必填显式配置（构造参数 / `AGENTID_IDP_URL` / `agent.json`）；该 helper 可删或仅留作 legacy fallback |
+| 2 | `_idp_url_from_agent_id` (L39-58) | 从 agent_id 推导 IdP host，仅认 `agentid:` 前缀 | **放弃推导**：agent_id 为 `agent_id:modelscope:<id>`，不含可解析的 API host（更没有 `/openapi/v1/agent_id` 路径）。`idp_url` 改为必填显式配置（构造参数 / `AGENTID_IDP_URL` / `agent.json`）；该 helper 可删或仅留作 legacy fallback |
 | 3 | `public_jwk` (L180-192) | 只含 `kty/crv/x` | 注册 JWK 需 `kid`（可含 `use:sig`/`alg:EdDSA`）：补 `"kid": self._kid` |
 
 > 签名「消息体」格式不变，仍为 `{agent_id}|{kid}|{audience}|{timestamp}`，只改签名的**输出编码**（hex → base64url）。请求体里的 `agent_id` 必须与签名所用一致。
@@ -49,7 +49,7 @@ prod `https://www.modelscope.cn/openapi/v1`），且**已作为事实标准**。
 | 8 | `_fetch_jwks` 发现 (L215-244) | `GET {https://domain}/.well-known/agentid-configuration`，再对 `jwks_uri` 路径重写 | discovery 与 jwks 实际在 `/openapi/v1/agent_id/` 下。两条路：① **首选**：后端把 OIDC 文档里的 `iss`/`token_endpoint`/`jwks_uri` 改成正确且一致的**绝对 URL**，SDK 直接用广播的 `jwks_uri`，去掉 L238-240 易翻倍的路径重写；② SDK 加 `jwks_urls: dict[domain,url]` 显式覆盖，命中即跳过发现 |
 | 9 | 构造参数 `audience` | 传 origin URL | 改传 Hub `client_id`（调用方配置，SDK 无需改） |
 | 10 | trusted / issuer | — | issuer 按 **domain** 比对：`trusted_providers=["test.modelscope.cn"]`（prod 用 `www.modelscope.cn`/`modelscope.cn`），按环境配置 |
-| 11 | `VerifiedAgent` (L518-531) | 期望 `principal/capabilities/scopes/delegation/agent_token_version` | ModelScope JWT 仅 `iss/sub/aud/iat/exp/jti`，上述字段全走空默认值。**无需改代码**，但：不要启用 `min_agent_token_version`（恒 0）；`dpop_mode` 不可设 `required`；发现文档无 `activity_endpoint`，活动上报需显式传入否则停用；依赖 `agent_id`(=`sub`) 的逻辑按 `aip:...` 格式处理 |
+| 11 | `VerifiedAgent` (L518-531) | 期望 `principal/capabilities/scopes/delegation/agent_token_version` | ModelScope JWT 仅 `iss/sub/aud/iat/exp/jti`，上述字段全走空默认值。**无需改代码**，但：不要启用 `min_agent_token_version`（恒 0）；`dpop_mode` 不可设 `required`；发现文档无 `activity_endpoint`，活动上报需显式传入否则停用；依赖 `agent_id`(=`sub`) 的逻辑按其原值处理（`agent_id:modelscope:...`，勿假设 `aip:` 前缀） |
 
 > `algorithms` 已含 `EdDSA`，`require:[exp,iss,aud]` 均满足，JWKS 解析已支持 OKP/Ed25519，无需改动。
 

@@ -19,6 +19,10 @@ pip install -e ref-idp/ agent-id-client-sdk/ agent-id-service-sdk/
 python examples/modelscope-quickstart/quickstart.py
 ```
 
+> Use a fresh DB. If you've run an older `ref-idp` before, an existing
+> `ref_idp.db` may have a stale schema — delete it (or start `ref-idp` from a
+> clean working dir) before launching.
+
 Expected output:
 
 ```
