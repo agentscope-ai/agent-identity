@@ -1,7 +1,7 @@
 # AgentID Service SDK (Hub side)
 
-`agent-id-service-sdk` lets a **hub** (resource server — e.g. the DojoZero
-gateway) verify the AgentID JWTs that agents present. It checks the signature
+`agent-id-service-sdk` lets a **hub** (resource server — e.g. an API gateway)
+verify the AgentID JWTs that agents present. It checks the signature
 against the IdP's published keys, the issuer, the audience, and expiry, and
 returns the caller's identity.
 
@@ -17,11 +17,21 @@ This is the hub-facing half. Agents obtain tokens with
 
 ```bash
 pip install agent-id-service-sdk
+# optional setup-time helper if you register the hub app from Python:
+pip install agent-id-client-sdk
 # or, from this monorepo:
 uv pip install -e agent-id-service-sdk
+uv pip install -e agent-id-client-sdk
 ```
 
-Runtime deps: `httpx`, `pyjwt[crypto]`.
+Runtime deps: `httpx`, `cryptography`, `pyjwt[crypto]`, `tldextract`.
+
+The service SDK is the runtime dependency for token verification. The client SDK
+is **not** required to serve requests. It appears below only because the Python
+setup helper `ModelScopeProvider.create_hub_app(...)` lives in
+`agent_id_client_sdk.providers.modelscope` today. If you register the hub app in
+the ModelScope console or call `POST /hub_apps` directly, skip
+`agent-id-client-sdk`.
 
 ---
 
@@ -32,13 +42,29 @@ self-advertise a `.well-known` manifest or JWKS. Instead you register the hub
 once and ModelScope issues a `client_id`, which becomes the **`aud`** every
 agent must target and the verifier must enforce.
 
+### A. ModelScope console
+
+In the ModelScope console, go to **Agent Identity → Identity Interconnection**
+and choose **Create Application**. Fill in the Hub application name and homepage
+/ service endpoint, submit, and save the returned `client_id` (for example
+`hub_4abb08`). That `client_id` is the audience agents must request tokens for,
+and the value your Hub must pass as `Verifier(audience=...)`.
+
+The console may also offer a domain **Verify** action. That is optional for
+token authentication; see the note below.
+
+### B. Python helper or direct OpenAPI
+
+Use this when scripting Hub registration. It needs a ModelScope AccessToken and
+is equivalent to calling `POST /hub_apps` directly.
+
 ```python
 from agent_id_client_sdk.providers.modelscope import ModelScopeProvider
 
 provider = ModelScopeProvider("<modelscope-access-token>",
                               base_url="https://www.modelscope.cn/openapi/v1")
-hub = provider.create_hub_app(app_name="Dojo",
-                              app_homepage="https://dojo.example.com")
+hub = provider.create_hub_app(app_name="MyHub",
+                              app_homepage="https://hub.example.com")
 print(hub.client_id)   # e.g. hub_4abb08  ← this is your audience
 ```
 
@@ -53,8 +79,8 @@ print(hub.client_id)   # e.g. hub_4abb08  ← this is your audience
 > Service Endpoint domain) and (b) **activity reporting** (the hub's published
 > signing key) — *not* for issuing or verifying tokens. Confirmed against
 > pre-prod (2026-06-29): a hub was created and its `client_id` used to issue +
-> verify real tokens with `Verify` having failed. Dojo's gateway is passive
-> (no manifest); add one only if you later wire activity reporting or want the
+> verify real tokens with `Verify` having failed. If your hub is passive
+> (no manifest), add one only if you later wire activity reporting or want the
 > verified-hub status.
 
 > ✅ **Pre-prod live (verified 2026-06-26).** `POST /hub_apps` answers with the
@@ -72,6 +98,35 @@ From `GET https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-conf
 | `token_endpoint` | `https://pre.modelscope.cn/openapi/v1/agent_id/token` |
 | signing alg | `EdDSA` (advertised as a JSON **string**, not an array — non-standard, but irrelevant since we pin `jwks_urls` and bypass discovery) |
 | JWKS kids | `idp-key-001`, `idp-key-002` (both `OKP`/`Ed25519`, `use=sig`) |
+
+---
+
+## New hub onboarding checklist
+
+For a fresh Hub, the minimal path to start serving ModelScope AgentID agents is:
+
+1. Register the Hub in the ModelScope console (**Agent Identity → Identity
+   Interconnection → Create Application**), or via `create_hub_app(...)` /
+   direct `POST /hub_apps`; save the returned `client_id`.
+2. Configure one `Verifier` with the matching ModelScope environment:
+   `trusted_providers`, `audience=<client_id>`, `jwks_urls`, and
+   `dpop_mode="disabled"`.
+3. Wire the verifier into every protected route. Reject requests without
+   `Authorization: Bearer <jwt>` and authorize business actions from
+   `verified.agent_id`.
+4. Confirm your agents already have ModelScope AgentID identities. Agent
+   provisioning is covered by [`agentid-client-sdk.md`](./agentid-client-sdk.md).
+5. Give agent operators the Hub API base URL, the hub `client_id` audience, the
+   ModelScope IdP base URL, and the required auth format:
+   `Authorization: Bearer <jwt>`.
+6. Keep environments consistent. For pre-prod, use `pre.modelscope.cn` and
+   `https://pre.modelscope.cn/openapi/v1` everywhere. For prod, use
+   `www.modelscope.cn` and `https://www.modelscope.cn/openapi/v1` everywhere.
+   Mixing pre-prod and prod values will fail issuer, JWKS, or audience checks.
+
+If you register through the Python helper or OpenAPI, the ModelScope AccessToken
+is a setup-time management credential. Keep it out of agent runtime config and
+do not ask agents to send it to your Hub.
 
 ---
 
@@ -122,6 +177,58 @@ fields (`principal`, `capabilities`, `scopes`, `delegation`, `model_info`,
 
 ---
 
+## Minimal FastAPI wiring
+
+The verifier is transport-agnostic; in HTTP services, keep one verifier instance
+and use it in an auth dependency:
+
+```python
+from fastapi import Depends, FastAPI, Header, HTTPException
+from agent_id_service_sdk import AgentIDError, Verifier
+
+app = FastAPI()
+
+verifier = Verifier(
+    trusted_providers=["www.modelscope.cn"],
+    audience="hub_4abb08",
+    jwks_urls={
+        "www.modelscope.cn":
+            "https://www.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks",
+    },
+    dpop_mode="disabled",
+)
+
+
+async def get_agent(authorization: str | None = Header(default=None)):
+    if not authorization:
+        raise HTTPException(401, "Authorization: Bearer <jwt> required")
+    try:
+        return await verifier.verify(authorization)
+    except AgentIDError:
+        raise HTTPException(401, "AgentID token verification failed")
+
+
+@app.get("/agents/whoami")
+async def whoami(agent=Depends(get_agent)):
+    return {
+        "agent_id": agent.agent_id,
+        "issuer": agent.issuer,
+        "expires_at": agent.expires_at.isoformat() if agent.expires_at else None,
+    }
+
+
+@app.post("/work")
+async def do_work(payload: dict, agent=Depends(get_agent)):
+    # Authorize from agent.agent_id. Do not trust a caller-supplied agent_id field.
+    return {"accepted_for": agent.agent_id}
+```
+
+If your service is not FastAPI, the same rule applies: extract the full
+`Authorization` header, call `await verifier.verify(header)`, reject failures
+with 401, and use only the returned `VerifiedAgent` as the caller identity.
+
+---
+
 ## Constructor reference (the fields that matter here)
 
 | Param | Value for ModelScope |
@@ -139,67 +246,10 @@ used** on the ModelScope path — reporting is deferred.
 
 ---
 
-## Using it inside DojoZero (gateway)
-
-The gateway builds the verifier from environment via
-`dojozero.gateway._agentid.agentid_verifier_from_env()`:
-
-| Env var | Meaning |
-| --- | --- |
-| `DOJOZERO_AGENTID_TRUSTED_PROVIDERS` | comma-separated issuer hosts, e.g. `pre.modelscope.cn` |
-| `DOJOZERO_AGENTID_AUDIENCE` | the registered hub `client_id` (required) |
-| `DOJOZERO_AGENTID_JWKS_URLS` | JSON `{domain: jwks_url}` to pin JWKS |
-| `DOJOZERO_AGENTID_PROVIDER_URLS` | JSON `{domain: base_url}` discovery override |
-| `DOJOZERO_AGENTID_CACHE_TTL_SECONDS` | default 3600 |
-| `DOJOZERO_AGENTID_CLOCK_SKEW_SECONDS` | default 30 |
-
-Both `TRUSTED_PROVIDERS` and `AUDIENCE` must be set or AgentID auth stays off
-(the gateway logs and returns `None`). With a verifier configured, the gateway
-**requires** a Bearer token and rejects the legacy `X-Agent-ID` header (closes
-the impersonation gap). Install the optional dependency:
-`pip install dojozero[agentid]`.
-
-> ✅ **Validated live (2026-06-29):** hub `hub_748233` (registered via the
-> console — *Identity Interconnection*) used as `DOJOZERO_AGENTID_AUDIENCE`; a
-> real ModelScope token verified through the gateway register path **and** at the
-> dashboard's `GET /api/agents/whoami` (deployment-level verification, no trial).
-
-### Enabling AgentID on a deployment
-
-The env above is **deployment-level, read once at startup**: the dashboard server
-builds one `Verifier` (`agentid_verifier_from_env()`) and shares it across `GET
-/api/agents/whoami` **and every trial gateway it launches**. So:
-
-- **Opt-in / all-or-nothing** — unset → AgentID OFF (legacy GitHub / api-key auth
-  unchanged); set → *every* trial under that server is AgentID-gated.
-- **One audience per server** — `DOJOZERO_AGENTID_AUDIENCE` is a single hub
-  `client_id`, so all trials verify against the same hub. Run a second server to
-  host a different hub.
-- **Restart to change** — the verifier is built at startup, not per request.
-
-Minimal config (the three that matter; the rest default):
-
-```bash
-DOJOZERO_AGENTID_TRUSTED_PROVIDERS=pre.modelscope.cn          # prod: www.modelscope.cn
-DOJOZERO_AGENTID_AUDIENCE=hub_748233                          # your hub client_id, NOT a URL
-# single-quote the JSON so the shell / .env parser keeps its quotes (otherwise
-# json.loads rejects it). In a raw env-injection field, enter the JSON without
-# the outer single quotes.
-DOJOZERO_AGENTID_JWKS_URLS='{"pre.modelscope.cn":"https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"}'
-```
-
-Where to set it depends on the deploy target: docker-compose loads the repo-root
-`.env` (`DojoZeroDeploy/.env.example` documents the block); the Aone build takes it
-from the platform's env injection (`APP-META/.../app/bin/setenv.sh` documents the
-keys). Either way the image must ship the `[agentid]` extra (`agent-id-service-sdk`).
-
----
-
 ## Status / gaps
 
 - ✅ Verify path: issuer/audience/exp/signature, `jwks_urls` discovery bypass,
   `dpop_mode="disabled"`, minimal-claims handling.
-- ✅ DojoZero gateway wiring (`agentid_verifier_from_env`, Bearer-required) +
-  dashboard-level `/api/agents/whoami` (verifies with no trial running).
-- ✅ Pre-prod discovery + JWKS reachable; live `client_id` `hub_748233` verified.
+- ✅ Pre-prod discovery + JWKS reachable; live hub `client_id` issuance and token
+  verification verified.
 - ⏳ Activity reporting / approvals — deferred (ModelScope IdP exposes neither).
