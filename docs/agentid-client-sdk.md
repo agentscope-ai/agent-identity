@@ -1,12 +1,12 @@
 # AgentID Client SDK (Agent side)
 
 `agent-id-client-sdk` lets an **agent** obtain a short-lived AgentID JWT from the
-ModelScope Agent IdP and attach it to its requests to a hub (e.g. the DojoZero
-gateway). The agent holds an Ed25519 private key; the IdP holds the matching
-public key it registered earlier and issues JWTs in exchange for a signed
-request.
+ModelScope Agent IdP and attach it to requests to an Agent Identity Connected
+App (IDA), such as the DojoZero gateway. The agent holds an Ed25519 private
+key; the IdP holds the matching public key it registered earlier and issues
+JWTs in exchange for a signed request.
 
-This is the agent-facing half. The hub verifies these tokens with
+This is the agent-facing half. The IDA verifies these tokens with
 [`agent-id-service-sdk`](./agentid-service-sdk.md).
 
 > This guide tracks the ModelScope-aligned SDK. For the underlying protocol
@@ -33,14 +33,14 @@ layer) also uses `httpx`.
 | --- | --- |
 | `Identity` | The agent's credential: `agent_id`, `kid`, Ed25519 private key, and `idp_url`. Signs token requests. Never makes management calls. |
 | `Client` | Async HTTP client that turns an `Identity` into tokens and attaches `Authorization: Bearer <jwt>` to requests, with caching + 401-retry. |
-| `providers/` | **Setup-time only.** Vendor control plane (register the agent, create a hub app). Needs a ModelScope AccessToken. The runtime path never imports it. |
+| `providers/` | **Setup-time only.** Vendor control plane (register the agent, create an IDA app). Needs a ModelScope AccessToken. The runtime path never imports it. |
 
 Two distinct phases — keep them separate:
 
 1. **Provision (once, at setup):** generate a keypair, register the public key
    with ModelScope → get an `agent_id`. Requires a ModelScope AccessToken.
 2. **Run (every request):** load the saved `Identity`, sign, get a JWT, call the
-   hub. No AccessToken involved — only the agent's private key.
+   IDA. No AccessToken involved — only the agent's private key.
 
 ---
 
@@ -58,7 +58,7 @@ console, and submit. You get back an `agent_id` (pre-prod format
 `agent_id:modelscope:agent_xxx`) and your chosen `kid`. Keep `agent.pem` private;
 it never leaves your host.
 
-The matching **hub** (the token audience) is registered separately under **Agent
+The matching **IDA** (the token audience) is registered separately under **Agent
 Identity → Identity Interconnection** → "Create Application", which mints a
 `client_id` (e.g. `hub_xxxxxx`). Domain verification there is optional.
 
@@ -120,10 +120,10 @@ identity = Identity.from_zip("my-agent.zip")
 
 ---
 
-## 3. Get tokens and call the hub
+## 3. Get tokens and call the IDA
 
-The **audience** is the hub's registered ModelScope **`client_id`** (e.g.
-`hub_4abb08`) — *not* an origin URL. Get this from whoever runs the hub.
+The **audience** is the IDA's registered ModelScope **`client_id`** (e.g.
+`hub_4abb08`) — *not* an origin URL. Get this from whoever runs the IDA.
 
 ```python
 from agent_id_client_sdk import Client
@@ -135,7 +135,7 @@ token = await client.get_token()
 
 # Or let the client attach the header for you:
 resp = await client.post(
-    "https://hub.example.com/api/agents/register",
+    "https://ida.example.com/api/agents/register",
     json={"agent_id": identity.agent_id},
 )
 resp.raise_for_status()

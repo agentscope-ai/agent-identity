@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-id-client-sdk"
 version = "0.4.0"
-description = "AgentID — Client SDK for AI agents"
+description = "AgentID — Client SDK for ModelScope Agent IdP"
 license = "Apache-2.0"
 authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]
 readme = "README.md"
