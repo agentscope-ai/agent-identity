@@ -5,7 +5,9 @@ Import a concrete provider explicitly, e.g.::
     from agent_id_client_sdk.providers.modelscope import ModelScopeProvider
     from agent_id_client_sdk.providers import provision_agent
 
-    provider = ModelScopeProvider(access_token, base_url="https://pre.modelscope.cn/openapi/v1")
+    provider = ModelScopeProvider(
+        access_token, base_url="https://www.modelscope.cn/openapi/v1"
+    )
     agent, _priv = provision_agent(provider, "my-agent")
 
 The runtime token path never imports this package — see

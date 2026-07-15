@@ -17,7 +17,7 @@ from agent_id_client_sdk.providers import (
 )
 from agent_id_client_sdk.providers.modelscope import ModelScopeProvider
 
-BASE = "https://pre.modelscope.cn/openapi/v1"
+BASE = "https://www.modelscope.cn/openapi/v1"
 
 
 def _provider(handler, token: str = "ms-token") -> ModelScopeProvider:

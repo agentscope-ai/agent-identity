@@ -27,7 +27,7 @@ from agent_id_client_sdk.providers import provision_agent
 from agent_id_client_sdk.providers.modelscope import ModelScopeProvider
 
 _TOKEN = os.environ.get("MODELSCOPE_ACCESS_TOKEN")
-_BASE = os.environ.get("MODELSCOPE_BASE", "https://pre.modelscope.cn/openapi/v1")
+_BASE = os.environ.get("MODELSCOPE_BASE", "https://www.modelscope.cn/openapi/v1")
 
 # Whole module is gated: nothing here runs without an AccessToken.
 pytestmark = pytest.mark.skipif(

@@ -1,10 +1,10 @@
 """AgentID CLI — manage agent identities from the command line.
 
 PARKED / not maintained. This CLI targets the legacy native IdP API
-(``/agentid/*``); neither ModelScope (the de-facto standard) nor the current
-``ref-idp`` serve those paths — both use ``/openapi/v1/agent_id/*``. Kept for
-reference only; no new PyPI releases. A ModelScope-aware rewrite (a thin wrapper
-over ``ModelScopeProvider`` + ``agent-id-client-sdk``) is planned. For ModelScope
+(``/agentid/*``); neither the live ModelScope IdP nor the current ``ref-idp``
+serve those paths — both use ``/openapi/v1/agent_id/*``. Kept for reference
+only; no new PyPI releases. A provider-aware rewrite (a thin wrapper over
+``ModelScopeProvider`` + ``agent-id-client-sdk``) is planned. For ModelScope
 provisioning today, use the ModelScope console or ``agent_id_client_sdk.providers``.
 """
 

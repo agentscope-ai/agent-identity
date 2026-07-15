@@ -1,111 +1,143 @@
 # AgentID
 
-**给 AI Agent 一张全网通用的身份证。**
+**A portable identity layer for AI agents.**
 
-AgentID 是 OIDC 的衍生身份框架，为 AI Agent 提供跨平台的身份认证、活动追踪和信任体系。协议是开放的——任何人都能实现自己的 IdP；**[ModelScope](https://www.modelscope.cn) 是事实标准实现**，本仓库的 SDK 默认面向它构建与验证。就像 OIDC 让"用 Google 登录"成为标准，AgentID 要让 Agent 身份成为基础设施。
+AgentID is an OIDC-inspired identity framework for AI agents. It gives agents
+portable authentication, traceable activity, and a trust model across services.
+The protocol is federated: any protocol-compatible identity provider (IdP) can
+issue AgentID JWTs, and Agent Identity Connected Apps (IDAs) verify those JWTs
+from the issuer's published keys. The live ModelScope IdP is a reference IdP
+implementation used by the examples in this repo; AgentID itself is not coupled
+to ModelScope or to any one application. DojoZero is a reference application
+integration, not a protocol dependency.
 
-## 核心概念
+Chinese version: [README.zh.md](README.zh.md)
 
-| 实体 | 角色 | 类比 |
-|------|------|------|
-| **主体 (Principal)** | Agent 背后的责任人——个人开发者或组织 | Google 账号持有人 |
-| **Agent** | 自主运行的 AI 程序，持有密钥对 | 需要登录的应用 |
-| **身份提供商 (IdP)** | 验证主体身份、签发 Agent JWT（事实标准：ModelScope） | Google（作为 OIDC 提供方） |
-| **Agent身份互联应用（Agent Identity Connected App, IDA）** | Agent 访问的应用或服务，验证 JWT | Spotify、Notion 等依赖方 |
+## Core Concepts
 
-- **Agent ID** 全局唯一：`agent_id:<提供商>:<唯一标识>`（ModelScope 示例：`agent_id:modelscope:agent_5jpbi6pzrpf3`）。
-- **IDA 身份** 是 IdP 签发的 `client_id`，也就是 Agent 换取 JWT 时的 `aud`（ModelScope 示例：`hub_748233`）。
+| Entity | Role | Analogy |
+| --- | --- | --- |
+| **Principal** | The person or organization accountable for an agent | Account owner |
+| **Agent** | An autonomous AI program that holds a keypair | A client that needs to authenticate |
+| **Identity provider (IdP)** | Verifies principals and issues short-lived AgentID JWTs | An OIDC provider |
+| **Agent Identity Connected App (IDA)** | A service or application that verifies AgentID JWTs | A relying-party application |
 
-## 核心流程
+- **Agent ID** is globally unique: `agent_id:<provider>:<unique-id>`
+  (for example, `agent_id:modelscope:agent_5jpbi6pzrpf3`).
+- **IDA identity** is the audience an agent targets when requesting a JWT. With
+  the live ModelScope IdP this is the registered `client_id`, for example
+  `hub_748233`.
 
-**第一步：创建 Agent 身份（一次性）** — 本地生成 Ed25519 密钥对，公钥（JWK）注册到 IdP，私钥（`agent.pem`）**永不离开本地**。ModelScope 上有两种方式：
+## Core Flow
 
-- **控制台**（推荐）：Agent Identity → 身份管理，按提示用 `openssl` 生成 `agent.pem`、提交公钥，拿到 `agent_id` + `kid`。
-- **Provider SDK**（脚本化 / 批量）：`agent_id_client_sdk.providers.ModelScopeProvider`（需 ModelScope AccessToken），用于自动化的 fleet 注册。
+**1. Create an agent identity once.** Generate an Ed25519 keypair locally,
+register the public JWK with an IdP, and keep the private key (`agent.pem`)
+local. With the live ModelScope IdP you can register through the console or
+through `agent_id_client_sdk.providers.ModelScopeProvider`.
 
 ```mermaid
 sequenceDiagram
-    participant Dev as 开发者
-    participant MS as IdP（ModelScope 控制台 / Provider SDK）
-    Dev->>Dev: 生成密钥对（Ed25519）→ agent.pem
-    Dev->>MS: 注册公钥（JWK）+ kid
-    MS-->>Dev: agent_id（+ 已登记的 client_id 作为 audience）
+    participant Dev as Developer
+    participant IdP as IdP
+    Dev->>Dev: Generate Ed25519 keypair -> agent.pem
+    Dev->>IdP: Register public JWK + kid
+    IdP-->>Dev: agent_id (+ registered audience/client_id)
 ```
 
-**第二步：Agent 认证（运行时，自动）** — Agent 用私钥签名 `{agent_id}|{kid}|{audience}|{timestamp}`，向 IdP 换取短期 JWT；IDA 用 IdP 的 JWKS 本地验签。SDK 自动完成换取、缓存与刷新。
+**2. Authenticate at runtime.** The agent signs
+`{agent_id}|{kid}|{audience}|{timestamp}` with its private key and exchanges
+that proof for a short-lived JWT. The IDA verifies the JWT locally using the
+IdP's JWKS. The SDKs handle token exchange, caching, refresh, and verification.
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Agent（agent-id-client-sdk）
-    participant IdP as 身份提供商（ModelScope）
-    participant IDA as Agent身份互联应用 / IDA（agent-id-service-sdk）
-    Agent->>IdP: 私钥签名请求 → /agent_id/token
-    IdP-->>Agent: 签发短期 JWT（iss/sub/aud/iat/exp/jti）
+    participant Agent as Agent (agent-id-client-sdk)
+    participant IdP as Identity provider
+    participant IDA as IDA (agent-id-service-sdk)
+    Agent->>IdP: Signed token request -> /agent_id/token
+    IdP-->>Agent: Short-lived JWT (iss/sub/aud/iat/exp/jti)
     Agent->>IDA: Authorization: Bearer <JWT>
-    IDA->>IDA: 用 IdP JWKS 本地验签（签名 / iss / aud / exp）
-    IDA-->>Agent: 正常响应
+    IDA->>IDA: Verify with IdP JWKS (signature / iss / aud / exp)
+    IDA-->>Agent: Response
 ```
 
-## 项目结构
+## Repository Layout
 
-| 模块 | 说明 | PyPI |
-|------|------|------|
-| **agent-id-client-sdk** | Agent 端 SDK（换取 / 附带 JWT、身份管理、`providers/` 控制面） | `pip install agent-id-client-sdk` |
-| **agent-id-service-sdk** | IDA 端验证库（验签 ModelScope JWT） | `pip install agent-id-service-sdk` |
-| **ref-idp** | ModelScope IdP 的**本地镜像**（FastAPI + SQLite；路径 / 签名 / claim 与 ModelScope 对齐，供离线开发与测试） | — |
-| **agent-id-cli** | 参考 CLI——**已停更**（面向旧版原生 IdP，详见其 [README](agent-id-cli/README.md)；ModelScope 版重写待办） | `pip install agent-id-cli` |
+| Module | Description | Install |
+| --- | --- | --- |
+| **agent-id-client-sdk** | Agent-side SDK for token exchange, authenticated requests, identity profiles, and setup-time provider adapters | `pip install agent-id-client-sdk` |
+| **agent-id-service-sdk** | IDA-side verification SDK for AgentID JWTs from trusted IdPs | `pip install agent-id-service-sdk` |
+| **ref-idp** | Local reference IdP for offline development and tests. It implements the current public endpoint shape used by the live ModelScope IdP. | - |
+| **agent-id-cli** | Parked legacy CLI for the old native IdP API. See [agent-id-cli/README.md](agent-id-cli/README.md). | `pip install agent-id-cli` |
 
-> 面向 ModelScope 集成只需两个库：**Agent 侧 `agent-id-client-sdk`** 与 **IDA 侧 `agent-id-service-sdk`**。`ref-idp` 是它们的离线测试替身。
+For the current live ModelScope IdP path, agents typically use
+`agent-id-client-sdk` and IDAs use `agent-id-service-sdk`. `ref-idp` is the
+offline substitute for local development.
 
-## 快速体验（本地 · 离线）
+## Quickstart (Local and Offline)
 
-用 `ref-idp` 作为 ModelScope 的本地镜像，跑通 **provision → token → verify**，无需网络 / AccessToken / IP 白名单：
+Run the minimal **provision -> token -> verify** loop against `ref-idp`, without
+network access, a ModelScope AccessToken, or an IP allowlist:
 
 ```bash
-# 安装两个 SDK + 本地镜像
+# Install both SDKs and the local reference IdP
 pip install -e ref-idp/ agent-id-client-sdk/ agent-id-service-sdk/
 
-# 启动本地 IdP（ModelScope 镜像）于 :8000
+# Start the local IdP on :8000
 ( cd ref-idp && uvicorn ref_idp.main:app --port 8000 & )
 
-# 跑最小 quickstart：注册 IDA → 注册 agent → 私钥换 JWT → 验签
+# Register an IDA, register an agent, mint a JWT, and verify it
 python examples/modelscope-quickstart/quickstart.py
 ```
 
-详见 [`examples/modelscope-quickstart/`](examples/modelscope-quickstart/)；换成真实 ModelScope 只需改 `quickstart.py` 里的 `IDP_BASE` / `ACCESS_TOKEN`，SDK 调用不变。
+See [examples/modelscope-quickstart/](examples/modelscope-quickstart/). To use
+the live ModelScope IdP, change `IDP_BASE` and `ACCESS_TOKEN` in
+`quickstart.py`; the SDK calls are the same.
 
-接入**真实 ModelScope** 的完整步骤见：
+## Integration Guides
 
-- Agent 侧 → [`docs/agentid-client-sdk.md`](docs/agentid-client-sdk.md)
-- IDA 侧 → [`docs/agentid-service-sdk.md`](docs/agentid-service-sdk.md) · [`docs/hub-integration.md`](docs/hub-integration.md)
-- 与 ModelScope 协议对齐的细节 → [`docs/modelscope-alignment.md`](docs/modelscope-alignment.md)
+- Agent side: [docs/agentid-client-sdk.md](docs/agentid-client-sdk.md)
+- IDA side: [docs/agentid-service-sdk.md](docs/agentid-service-sdk.md)
+- IDA integration: [docs/ida-integration.md](docs/ida-integration.md)
 
-## 联邦制：协议开放，ModelScope 是事实标准
+## Federation Model
 
-协议是开放的——任何人都能按下表实现自己的 IdP；ModelScope 是当前的事实标准实现。IDA 看 JWT 里的 `iss`，去对应域名拿 JWKS 验签——跟浏览器验 HTTPS 证书一个道理。
+AgentID is provider-neutral. An IDA reads the JWT `iss`, trusts only configured
+issuer domains, fetches the issuer's JWKS, and verifies the token locally. The
+current live ModelScope IdP exposes this endpoint shape under
+`https://www.modelscope.cn/openapi/v1`:
 
-| 端点（ModelScope 形态，base `…/openapi/v1`） | 用途 |
-|------|------|
-| `/agent_id/.well-known/agentid-configuration` | 服务发现 |
-| `/agent_id/.well-known/agentid-jwks` | IdP 公钥（JWKS） |
-| `/agent_id/token` | 私钥签名换 JWT |
-| `/agent_ids` | 注册 Agent（控制面，需 AccessToken） |
-| `/hub_apps` | 注册 IDA 应用 → 取 `client_id`（= JWT 的 `aud`） |
+| Endpoint | Purpose |
+| --- | --- |
+| `/agent_id/.well-known/agentid-configuration` | Discovery |
+| `/agent_id/.well-known/agentid-jwks` | IdP public keys (JWKS) |
+| `/agent_id/token` | Private-key proof -> short-lived JWT |
+| `/agent_ids` | Agent registration (setup-time control plane) |
+| `/hub_apps` | IDA registration -> `client_id` used as JWT `aud` |
 
-> 活动上报（`activity`）与审批（approvals）为二期能力，ModelScope IdP 暂未暴露，当前不在集成范围内。
+Other IdP implementations can expose equivalent protocol-compatible behavior.
 
-- [协议规格（中文）](design/2026-03-25-agentid.zh.md) · [Protocol Spec (English)](design/2026-03-25-agentid.en.md)
-- [IdP 实现指南](design/2026-03-31-idp-implementation-guide.zh.md)
-- [IDA Integration Guide](docs/hub-integration.md) — practical guide for services adopting the protocol
+Activity reporting and approval workflows are planned higher-layer capabilities;
+they are not required for Layer 0 identity and token verification.
 
-## 相关工作
+## Related Work
 
-- [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/) — 微软的企业 Agent 身份方案。锁定 M365 生态，非开放标准。
-- [Ping Identity for AI](https://www.pingidentity.com/en/solution/agentic-ai-identity.html) — 基于 OAuth 2.0 Token Exchange，重治理和 MCP 集成，身份归平台所有。
-- [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) / [SPIFFE](https://spiffe.io/) — 工作负载身份标准，正在被拉伸用于 Agent 场景。AgentID Layer 0 可插拔兼容。
-- [OAuth 2.0](https://oauth.net/2/) / [OIDC](https://openid.net/connect/) — AgentID 借鉴了联邦身份认证的成熟模式，但为 Agent 做了原生设计。
-- [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/news-insights/new-concept-paper-identity-and-authority-software-agents) — NIST 关于 Agent 身份的概念文件。
+- [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/)
+  - enterprise agent identity inside the Microsoft ecosystem.
+- [Ping Identity for AI](https://www.pingidentity.com/en/solution/agentic-ai-identity.html)
+  - OAuth 2.0 Token Exchange-based governance and MCP integration.
+- [IETF WIMSE](https://datatracker.ietf.org/group/wimse/about/) /
+  [SPIFFE](https://spiffe.io/) - workload identity standards that overlap with
+  some agent identity needs.
+- [OAuth 2.0](https://oauth.net/2/) /
+  [OIDC](https://openid.net/connect/) - the federation patterns AgentID builds
+  on for agents.
+- [NIST NCCoE AI Agent Identity](https://www.nccoe.nist.gov/news-insights/new-concept-paper-identity-and-authority-software-agents)
+  - concept paper on identity and authority for software agents.
 
-## 状态
+## Status
 
-**ModelScope 对齐版 SDK 已发布**：`agent-id-service-sdk`、`agent-id-client-sdk`（`pip install`）。Layer 0（身份 + 验签）已落地并面向 ModelScope 验证；活动上报与审批为二期能力。
+Layer 0 identity and token verification are implemented in
+`agent-id-client-sdk` and `agent-id-service-sdk`. The live ModelScope IdP is
+available as a reference IdP implementation. Activity reporting and approval
+delegation remain follow-on capabilities.

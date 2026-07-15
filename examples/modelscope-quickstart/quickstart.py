@@ -1,9 +1,9 @@
 """ModelScope AgentID quickstart — provision → token → verify, fully offline.
 
 Runs the exact ModelScope-shaped loop end-to-end against a LOCAL ``ref-idp``
-(the ModelScope mirror), so it needs no network, no ModelScope AccessToken, and
-no IP allowlist. The ONLY things that change for real ModelScope are the
-``IDP_BASE`` URL (pre/prod) and a real AccessToken — the SDK calls are identical.
+reference IdP, so it needs no network, no ModelScope AccessToken, and
+no IP allowlist. The ONLY things that change for the live ModelScope IdP are the
+``IDP_BASE`` URL and a real AccessToken — the SDK calls are identical.
 
 Steps:
   1. register a hub app           → client_id (the token audience)
@@ -28,13 +28,13 @@ from agent_id_client_sdk.providers import provision_agent
 from agent_id_client_sdk.providers.modelscope import ModelScopeProvider
 from agent_id_service_sdk import Verifier
 
-# Local ref-idp (ModelScope mirror). For real ModelScope, use e.g.
-#   IDP_BASE = "https://pre.modelscope.cn/openapi/v1"   (prod: www.modelscope.cn)
-#   PROVIDER_HOST = "pre.modelscope.cn"
+# Local ref-idp (ModelScope-shaped reference IdP). For the live ModelScope IdP:
+#   IDP_BASE = "https://www.modelscope.cn/openapi/v1"
+#   PROVIDER_HOST = "www.modelscope.cn"
 #   ACCESS_TOKEN = "<your ModelScope AccessToken>"
 IDP_BASE = "http://localhost:8000/openapi/v1"
-# Provider key = the issuer netloc (host[:port]). Real ModelScope has no port,
-# so it's just "pre.modelscope.cn"; locally the port is part of it.
+# Provider key = the issuer netloc (host[:port]). The live ModelScope IdP has no
+# port, so it's just "www.modelscope.cn"; locally the port is part of it.
 PROVIDER_HOST = "localhost:8000"
 JWKS_URL = f"{IDP_BASE}/agent_id/.well-known/agentid-jwks"
 

@@ -1,16 +1,15 @@
 # AgentID Client SDK (Agent side)
 
-`agent-id-client-sdk` lets an **agent** obtain a short-lived AgentID JWT from the
-ModelScope Agent IdP and attach it to requests to an Agent Identity Connected
-App (IDA), such as the DojoZero gateway. The agent holds an Ed25519 private
-key; the IdP holds the matching public key it registered earlier and issues
-JWTs in exchange for a signed request.
+`agent-id-client-sdk` lets an **agent** obtain a short-lived AgentID JWT from a
+protocol-compatible IdP and attach it to requests to an Agent Identity Connected
+App (IDA), such as an API gateway or application backend. The examples below
+use the live ModelScope IdP as a reference IdP implementation; AgentID does not
+assume ModelScope is the only IdP. The agent holds an Ed25519 private key; the
+IdP holds the matching public key it registered earlier and issues JWTs in
+exchange for a signed request.
 
 This is the agent-facing half. The IDA verifies these tokens with
 [`agent-id-service-sdk`](./agentid-service-sdk.md).
-
-> This guide tracks the ModelScope-aligned SDK. For the underlying protocol
-> change list see [`modelscope-alignment.md`](./modelscope-alignment.md).
 
 ---
 
@@ -33,12 +32,13 @@ layer) also uses `httpx`.
 | --- | --- |
 | `Identity` | The agent's credential: `agent_id`, `kid`, Ed25519 private key, and `idp_url`. Signs token requests. Never makes management calls. |
 | `Client` | Async HTTP client that turns an `Identity` into tokens and attaches `Authorization: Bearer <jwt>` to requests, with caching + 401-retry. |
-| `providers/` | **Setup-time only.** Vendor control plane (register the agent, create an IDA app). Needs a ModelScope AccessToken. The runtime path never imports it. |
+| `providers/` | **Setup-time only.** Provider control plane (register the agent, create an IDA app). Includes `ModelScopeProvider`, which needs a ModelScope AccessToken. The runtime path never imports it. |
 
 Two distinct phases — keep them separate:
 
 1. **Provision (once, at setup):** generate a keypair, register the public key
-   with ModelScope → get an `agent_id`. Requires a ModelScope AccessToken.
+   with an IdP → get an `agent_id`. The ModelScope example requires a
+   ModelScope AccessToken.
 2. **Run (every request):** load the saved `Identity`, sign, get a JWT, call the
    IDA. No AccessToken involved — only the agent's private key.
 
@@ -46,15 +46,15 @@ Two distinct phases — keep them separate:
 
 ## 1. Provision an identity (once)
 
-The agent identity is created by registering an Ed25519 public key with
-ModelScope. Two ways:
+The agent identity is created by registering an Ed25519 public key with an IdP.
+With the live ModelScope IdP, you have two options:
 
-### A. ModelScope console (recommended for end users)
+### A. ModelScope console
 
 In the ModelScope console, go to **Agent Identity → Identity management** and
 create an agent. The console shows an `openssl` command that generates `agent.pem`
 (Ed25519) locally plus the public key as a JWK — run it, paste the JWK into the
-console, and submit. You get back an `agent_id` (pre-prod format
+console, and submit. You get back an `agent_id` (format
 `agent_id:modelscope:agent_xxx`) and your chosen `kid`. Keep `agent.pem` private;
 it never leaves your host.
 
@@ -87,11 +87,10 @@ Only the public JWK is uploaded; the private key stays local. `provision_agent`
 saves `idp_url` (the OpenAPI base) into the profile so the runtime client knows
 where to fetch tokens.
 
-> ✅ **Pre-prod live (verified 2026-06-26).** Management/token plane on
-> `https://pre.modelscope.cn/openapi/v1` is reachable — `POST /agent_id/token`
-> answers with the ModelScope envelope and `POST /hub_apps` / `POST /agent_ids`
-> require `Authorization: Bearer <ModelScope AccessToken>`. Prod base is
-> `https://www.modelscope.cn/openapi/v1`.
+> **Live ModelScope IdP.** The public base URL is
+> `https://www.modelscope.cn/openapi/v1`. `POST /agent_id/token` returns a
+> ModelScope response envelope, and `POST /hub_apps` / `POST /agent_ids`
+> require `Authorization: Bearer <ModelScope AccessToken>`.
 
 ---
 
@@ -181,9 +180,10 @@ jti`. No `principal`, `scopes`, `delegation`, or `cnf`.
 
 ---
 
-## Using it inside DojoZero
+## Reference application: DojoZero
 
-The DojoZero client SDK (`dojozero-client`) wraps this transparently: its
+DojoZero is a reference application integration, not a protocol dependency. Its
+client SDK (`dojozero-client`) wraps this transparently: its
 `GatewayTransport` accepts an `agentid_client` + `agentid_audience` and attaches
 the Bearer header on every gateway call. See the agent-side connect-to-Dojo
 skill for the end-user flow.
@@ -205,10 +205,11 @@ then `dojozero-agent start <trial>` connects via AgentID.
 - ✅ Runtime path (sign → `/agent_id/token` → Bearer attach), base64url sig,
   int timestamp, envelope unwrap, per-audience cache + 401-retry.
 - ✅ Provider layer (`ModelScopeProvider`, `provision_agent`) for registration.
-- ✅ Pre-prod base reachable (token endpoint live; verified 2026-06-26).
-- ✅ Console registration UX (above) + full token→verify run against pre-prod —
-  validated live 2026-06-29 (`agent_id:modelscope:agent_…`, audience `hub_748233`).
+- ✅ Live ModelScope endpoint shape supported.
+- ✅ Console registration UX (above) + full token→verify run against the live
+  ModelScope IdP validated (`agent_id:modelscope:agent_…`, audience
+  `hub_748233`).
 - ✅ DojoZero CLI exposure (`dojozero-agent config --agentid-*`).
-- ✅ Live SDK provisioning (`provision_agent` / `create_hub_app`) — validated
-  against pre-prod 2026-06-29 (registers + round-trips + self-cleans; covered by
+- ✅ Live SDK provisioning (`provision_agent` / `create_hub_app`) validated
+  against the ModelScope IdP (registers + round-trips + self-cleans; covered by
   the skip-by-default `test_modelscope_live.py` integration test).
