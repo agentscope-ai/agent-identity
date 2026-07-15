@@ -175,8 +175,8 @@ async def test_jwks_urls_bypasses_discovery(monkeypatch):
     """
     private_key, public_key = _make_keypair()
 
-    ms_domain = "pre.modelscope.cn"
-    jwks_url = "https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"
+    ms_domain = "www.modelscope.cn"
+    jwks_url = "https://www.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks"
     fetched_urls: list[str] = []
 
     class _FakeResp:
@@ -217,7 +217,7 @@ async def test_jwks_urls_bypasses_discovery(monkeypatch):
         private_key,
         {
             "sub": "aip:identity.modelscope.cn:agent_x",
-            "iss": "https://pre.modelscope.cn/openapi/v1",
+            "iss": "https://www.modelscope.cn/openapi/v1",
             "aud": "hub_4abb08",
             "iat": int(time.time()),
             "exp": int(time.time()) + 600,

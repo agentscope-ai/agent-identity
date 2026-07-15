@@ -1,6 +1,10 @@
 # agent-id-service-sdk
 
-AgentID Service SDK — for Agent Identity Connected App (IDA) services and APIs to verify AgentID JWTs issued by the ModelScope Agent IdP (`modelscope.cn`).
+AgentID Service SDK — for Agent Identity Connected App (IDA) services and APIs
+to verify AgentID JWTs issued by trusted protocol-compatible IdPs. The examples
+below use the live ModelScope IdP.
+
+Chinese version: [README.zh.md](README.zh.md)
 
 ## Installation
 
@@ -35,7 +39,7 @@ print(f"Agent: {agent.agent_id}, Issuer: {agent.issuer}")
 ## Features
 
 - **Transport-agnostic** — `verify()` for HTTP headers, `verify_token()` for raw JWTs (WebSocket, gRPC, MCP)
-- **ModelScope aligned** — verifies minimal AgentID JWTs issued by the ModelScope IdP
+- **Protocol-compatible IdP verification** — verifies AgentID JWTs from trusted issuers, including the live ModelScope IdP
 - **Key rotation resilience** — Automatically refetches JWKS when an unknown `kid` is encountered
 - **Clock skew tolerance** — Configurable leeway (default 30s) for JWT expiry checks
 - **JWKS caching** — Caches provider public keys with configurable TTL (default 1 hour)
@@ -58,4 +62,9 @@ verifier = Verifier(
 
 ## Documentation
 
-See the [service SDK guide](https://github.com/agentscope-ai/agent-identity/blob/main/docs/agentid-service-sdk.md) or the [AgentID](https://github.com/agentscope-ai/agent-identity) repository for full documentation.
+See the service SDK guide:
+[English](https://github.com/agentscope-ai/agent-identity/blob/main/docs/agentid-service-sdk.md) /
+[Chinese](https://github.com/agentscope-ai/agent-identity/blob/main/docs/agentid-service-sdk.zh.md).
+
+For broader context, see the [AgentID](https://github.com/agentscope-ai/agent-identity)
+repository.

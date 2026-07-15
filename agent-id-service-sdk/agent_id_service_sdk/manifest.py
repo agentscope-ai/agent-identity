@@ -10,10 +10,8 @@ Used by ``aip-activity``'s ingest path to resolve which Tier-2
 namespaces a given hub is allowed to emit, and to validate Tier-2
 event payloads against the hub-published JSON Schemas.
 
-This module is the **client** side of the activity-discovery protocol
-defined in
-``agent-identity/design/2026-05-04-activity-discovery.en.md``. The
-**server** side (hub publishing the manifest) lives in
+This module is the **client** side of the activity-discovery protocol.
+The **server** side (hub publishing the manifest) lives in
 :mod:`agent_id_service_sdk.manifest_signing`.
 """
 

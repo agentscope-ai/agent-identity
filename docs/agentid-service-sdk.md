@@ -7,10 +7,9 @@ IdP's published keys, the issuer, the audience, and expiry, and returns the
 caller's identity.
 
 This is the IDA-facing half. Agents obtain tokens with
-[`agent-id-client-sdk`](./agentid-client-sdk.md).
-
-> This guide tracks the ModelScope-aligned SDK. For the underlying protocol
-> change list see [`modelscope-alignment.md`](./modelscope-alignment.md).
+[`agent-id-client-sdk`](./agentid-client-sdk.md). The examples below use the
+live ModelScope IdP as a reference IdP implementation. AgentID does not assume
+ModelScope is the only IdP.
 
 ---
 
@@ -36,12 +35,17 @@ in the ModelScope console or call `POST /hub_apps` directly, skip
 
 ---
 
-## Prerequisite: register the IDA → get a `client_id`
+## Prerequisite for ModelScope: register the IDA → get a `client_id`
 
-ModelScope is the **central authority** for IDA identity. The IDA does **not**
-self-advertise a `.well-known` manifest or JWKS for token authentication.
-Instead you register the IDA once and ModelScope issues a `client_id`, which
-becomes the **`aud`** every agent must target and the verifier must enforce.
+With the live ModelScope IdP, IDAs are registered in ModelScope. The IDA does
+**not** need to self-advertise a `.well-known` manifest or JWKS for token
+authentication. Instead you register the IDA once and ModelScope issues a
+`client_id`, which becomes the **`aud`** every agent must target and the
+verifier must enforce.
+
+Other protocol-compatible IdPs may use a different setup-time registration
+model or use the IDA service URL as the audience. Configure `Verifier(audience=...)`
+to match the IdP that issues the tokens you accept.
 
 ### A. ModelScope console
 
@@ -78,25 +82,23 @@ print(ida_app.client_id)   # e.g. hub_4abb08  ← this is your audience
 > optional — not required for token auth.** The `/.well-known/manifest` it
 > probes is for (a) the **verified IDA trust badge** (proving you own the
 > Service Endpoint domain) and (b) **activity reporting** (the IDA's published
-> signing key) — *not* for issuing or verifying tokens. Confirmed against
-> pre-prod (2026-06-29): an IDA was created and its `client_id` used to issue +
-> verify real tokens with `Verify` having failed. If your IDA is passive
+> signing key) — *not* for issuing or verifying tokens. If your IDA is passive
 > (no manifest), add one only if you later wire activity reporting or want the
 > verified IDA status.
 
-> ✅ **Pre-prod live (verified 2026-06-26).** `POST /hub_apps` answers with the
-> ModelScope envelope (`InvalidAuthentication` without a token); supply
+> `POST /hub_apps` answers with the ModelScope envelope
+> (`InvalidAuthentication` without a token); supply
 > `Authorization: Bearer <ModelScope AccessToken>` to register.
 
-### Verified pre-prod endpoints (2026-06-26)
+### ModelScope endpoint values
 
-From `GET https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-configuration`:
+From `GET https://www.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-configuration`:
 
 | Field | Value |
 | --- | --- |
-| `issuer` | `https://pre.modelscope.cn/openapi/v1` (host `pre.modelscope.cn` → `trusted_providers`) |
-| `jwks_uri` | `https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks` (→ `jwks_urls`) |
-| `token_endpoint` | `https://pre.modelscope.cn/openapi/v1/agent_id/token` |
+| `issuer` | `https://www.modelscope.cn/openapi/v1` (host `www.modelscope.cn` → `trusted_providers`) |
+| `jwks_uri` | `https://www.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-jwks` (→ `jwks_urls`) |
+| `token_endpoint` | `https://www.modelscope.cn/openapi/v1/agent_id/token` |
 | signing alg | `EdDSA` (advertised as a JSON **string**, not an array — non-standard, but irrelevant since we pin `jwks_urls` and bypass discovery) |
 | JWKS kids | `idp-key-001`, `idp-key-002` (both `OKP`/`Ed25519`, `use=sig`) |
 
@@ -104,7 +106,7 @@ From `GET https://pre.modelscope.cn/openapi/v1/agent_id/.well-known/agentid-conf
 
 ## New IDA onboarding checklist
 
-For a fresh IDA, the minimal path to start serving ModelScope AgentID agents is:
+For a fresh IDA using the live ModelScope IdP, the minimal path is:
 
 1. Register the IDA in the ModelScope console (**Agent Identity → Identity
    Interconnection → Create Application**), or via `create_hub_app(...)` /
@@ -120,10 +122,10 @@ For a fresh IDA, the minimal path to start serving ModelScope AgentID agents is:
 5. Give agent operators the IDA API base URL, the IDA `client_id` audience, the
    ModelScope IdP base URL, and the required auth format:
    `Authorization: Bearer <jwt>`.
-6. Keep environments consistent. For pre-prod, use `pre.modelscope.cn` and
-   `https://pre.modelscope.cn/openapi/v1` everywhere. For prod, use
-   `www.modelscope.cn` and `https://www.modelscope.cn/openapi/v1` everywhere.
-   Mixing pre-prod and prod values will fail issuer, JWKS, or audience checks.
+6. Keep issuer and JWKS configuration consistent. For the public ModelScope IdP,
+   use `www.modelscope.cn` and `https://www.modelscope.cn/openapi/v1`
+   everywhere. Mixing issuer hosts, JWKS URLs, or audiences will fail issuer,
+   JWKS, or audience checks.
 
 If you register through the Python helper or OpenAPI, the ModelScope AccessToken
 is a setup-time management credential. Keep it out of agent runtime config and
@@ -234,7 +236,7 @@ with 401, and use only the returned `VerifiedAgent` as the caller identity.
 
 | Param | Value for ModelScope |
 | --- | --- |
-| `trusted_providers` | `["www.modelscope.cn"]` (prod) / `["pre.modelscope.cn"]` |
+| `trusted_providers` | `["www.modelscope.cn"]` |
 | `audience` | the registered IDA `client_id`, e.g. `"hub_4abb08"` |
 | `jwks_urls` | `{domain: ".../agent_id/.well-known/agentid-jwks"}` — pins JWKS, skips discovery |
 | `dpop_mode` | `"disabled"` |
@@ -251,6 +253,6 @@ used** on the ModelScope path — reporting is deferred.
 
 - ✅ Verify path: issuer/audience/exp/signature, `jwks_urls` discovery bypass,
   `dpop_mode="disabled"`, minimal-claims handling.
-- ✅ Pre-prod discovery + JWKS reachable; live IDA `client_id` issuance and token
-  verification verified.
+- ✅ Live ModelScope discovery/JWKS path, IDA `client_id` audience, and token
+  verification supported.
 - ⏳ Activity reporting / approvals — deferred (ModelScope IdP exposes neither).

@@ -19,8 +19,7 @@ from .base import (
     RegisteredHubApp,
 )
 
-#: Production OpenAPI base. Override for pre-prod, e.g.
-#: ``https://pre.modelscope.cn/openapi/v1``.
+#: Production OpenAPI base for the live ModelScope IdP.
 DEFAULT_BASE_URL = "https://www.modelscope.cn/openapi/v1"
 
 

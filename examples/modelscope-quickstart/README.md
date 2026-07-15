@@ -1,10 +1,10 @@
 # ModelScope AgentID Quickstart
 
 The minimal ModelScope-shaped loop — **provision → token → verify** — run fully
-offline against a local `ref-idp` (the ModelScope mirror). No network, no
-ModelScope AccessToken, no IP allowlist. Swap `IDP_BASE` / `PROVIDER_HOST` /
-`ACCESS_TOKEN` in [`quickstart.py`](quickstart.py) for real ModelScope and the
-SDK calls are identical.
+offline against a local `ref-idp` reference IdP. No network, no ModelScope
+AccessToken, no IP allowlist. Swap `IDP_BASE` / `PROVIDER_HOST` /
+`ACCESS_TOKEN` in [`quickstart.py`](quickstart.py) for the live ModelScope IdP
+and the SDK calls are identical.
 
 ## Run
 
@@ -12,7 +12,7 @@ SDK calls are identical.
 # from the repo root — install the two SDKs + the local mirror
 pip install -e ref-idp/ agent-id-client-sdk/ agent-id-service-sdk/
 
-# start the local IdP (ModelScope mirror) on :8000
+# start the local reference IdP on :8000
 ( cd ref-idp && uvicorn ref_idp.main:app --port 8000 & )
 
 # run the quickstart
@@ -48,7 +48,7 @@ Expected output:
 | mint token | `Client.get_token` (`agent-id-client-sdk`) | `POST /openapi/v1/agent_id/token` |
 | verify token | `Verifier.verify` (`agent-id-service-sdk`) | JWKS at `…/agent_id/.well-known/agentid-jwks` |
 
-> Against the local mirror the agent_id is `aip:localhost:…`; real ModelScope
-> issues `agent_id:modelscope:…`. The SDK signs it verbatim, so the runtime path
-> is identical. ref-idp's control plane accepts any non-empty bearer as the dev
-> AccessToken; real ModelScope needs your account AccessToken.
+> Against the local reference IdP the agent_id is `aip:localhost:…`; the live
+> ModelScope IdP issues `agent_id:modelscope:…`. The SDK signs it verbatim, so
+> the runtime path is identical. ref-idp's control plane accepts any non-empty
+> bearer as the dev AccessToken; ModelScope needs your account AccessToken.

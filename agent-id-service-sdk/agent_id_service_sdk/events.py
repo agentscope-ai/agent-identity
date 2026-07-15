@@ -33,11 +33,11 @@ TIER1_CATEGORIES: frozenset[str] = frozenset(
         "data.read",
         "data.write",
         "transfer.value",
-        # Approval workflow (see 2026-03-25-agentid.en.md §7.4).
+        # Approval workflow lifecycle.
         "approval.requested",
         "approval.granted",
         "approval.denied",
-        # Delegation lifecycle (see 2026-03-25-agentid.en.md §4.4 / §7.4).
+        # Delegation lifecycle.
         "delegation.granted",
         "delegation.revoked",
     }
