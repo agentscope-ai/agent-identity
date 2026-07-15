@@ -1,4 +1,4 @@
-# Hub Integration Guide
+# IDA Integration Guide
 
 How to make a service speak the AgentID protocol — from "publish your identity" up to "accept agents and verify their tokens."
 
@@ -6,16 +6,16 @@ This is the doc to read **first** if you're integrating a new service. The desig
 
 ## Who this is for
 
-You're integrating a service that wants to participate in AgentID. The protocol's core unit is the **hub** — a service that both publishes a verifiable identity and accepts agents authenticated by trusted IdPs. Identity and acceptance are two halves of one JWS handshake: the issuer side proves who you are, the verifier side checks who your peers are. Either half on its own is degenerate — publishing a key without ever verifying tokens is "I exist" with no use; verifying tokens without a published identity makes you unaddressable. So Level 1 bundles them.
+You're integrating a service that wants to participate in AgentID. The user-facing role is an **Agent Identity Connected App (IDA)** — a service that both publishes a verifiable identity and accepts agents authenticated by trusted IdPs. Identity and acceptance are two halves of one JWS handshake: the issuer side proves who you are, the verifier side checks who your peers are. Either half on its own is degenerate — publishing a key without ever verifying tokens is "I exist" with no use; verifying tokens without a published identity makes you unaddressable. So Level 1 bundles them.
 
 This bundling is deliberate. Treating identity and acceptance as separate capabilities is the architectural mistake we critique in competing protocols: identity that nothing verifies against, and acceptance that anyone can claim. The two only make sense together.
 
-Activity emission and (when shipped) approval gating layer on top of a working hub.
+Activity emission and (when shipped) approval gating layer on top of a working IDA.
 
 | Level | What you do | Reasonable effort |
 |---|---|---|
-| **Hub (identity + acceptance)** | Publish your hub identity (manifest + JWKS) AND accept Bearer-JWT-authenticated agents from trusted IdPs. The minimum to participate as both attestation issuer and peer verifier. The DojoZero shape. | About a week |
-| **Activity emission** | Above, plus emit signed activity events to an aip-activity service for audit and cross-hub reputation. Most production hubs land here. | +2–3 days |
+| **IDA (identity + acceptance)** | Publish your IDA identity (manifest + JWKS) AND accept Bearer-JWT-authenticated agents from trusted IdPs. The minimum to participate as both attestation issuer and peer verifier. The DojoZero shape. | About a week |
+| **Activity emission** | Above, plus emit signed activity events to an aip-activity service for audit and cross-IDA reputation. Most production IDAs land here. | +2–3 days |
 | **Approval gating** *(preview)* | Above, plus gate high-risk actions through IdP-delegated approval (§7.6 thin grants, Model 3 — see `design/2026-04-23-approval-scenarios.en.md`). Designed; not yet shipped end-to-end in the SDK. | TBD |
 
 Levels 2 and 3 build on Level 1. Pick the lowest level that meets your needs; you can grow into more later.
@@ -29,32 +29,32 @@ Levels 2 and 3 build on Level 1. Pick the lowest level that meets your needs; yo
 
 ---
 
-## Level 1 — Hub (identity + acceptance)
+## Level 1 — IDA (identity + acceptance)
 
-Goal: be a working hub. Publish your identity (manifest + JWKS) so peers can verify you, AND accept agents presenting Bearer JWTs from IdPs you trust. Both halves of the JWS handshake live here.
+Goal: be a working IDA. Publish your identity (manifest + JWKS) so peers can verify you, AND accept agents presenting Bearer JWTs from IdPs you trust. Both halves of the JWS handshake live here.
 
-### 1.1 Mint a hub keypair
+### 1.1 Mint an IDA keypair
 
 ```bash
-python -m agent_id_service_sdk.keygen --kid prod-hub-key-1 --out /run/secrets/hub-key.pem
+python -m agent_id_service_sdk.keygen --kid prod-ida-key-1 --out /run/secrets/ida-key.pem
 ```
 
 Outputs:
 - A PEM file at the path (mode 0600). Treat as a secret — load via your secret manager.
 - A public JWK printed to stdout. You'll publish this at the JWKS endpoint.
 
-The `kid` is your choice. Convention: `<env>-hub-key-N` so rotation later is unambiguous. There's only one key per deployment today; rotation tooling lands when the spec defines it.
+The `kid` is your choice. Convention: `<env>-ida-key-N` so rotation later is unambiguous. There's only one key per deployment today; rotation tooling lands when the spec defines it.
 
-### 1.2 Configure the hub
+### 1.2 Configure the IDA
 
 ```python
-# myhub/config.py
+# myida/config.py
 import os
 
-HUB_SERVICE_ID = "https://api.myservice.com"      # public origin, no trailing slash
-HUB_NAMESPACE = "myservice"                        # must match service_id's eTLD+1
-HUB_KID = "prod-hub-key-1"
-HUB_PRIVATE_KEY_PEM = open(os.environ["HUB_KEY_PEM_PATH"]).read()
+IDA_SERVICE_ID = "https://api.myservice.com"      # public origin, no trailing slash
+IDA_NAMESPACE = "myservice"                        # must match service_id's eTLD+1
+IDA_KID = "prod-ida-key-1"
+IDA_PRIVATE_KEY_PEM = open(os.environ["IDA_KEY_PEM_PATH"]).read()
 
 # Trust list — IdPs whose tokens you'll accept at the verifier side.
 # Tokens from issuers not in this list are rejected. Add as you onboard
@@ -73,32 +73,32 @@ For IdPs that aren't reachable at the conventional `https://<provider_domain>/.w
 The SDK gives you `build_manifest`, `sign_manifest`, and `public_key_to_jwk`. You wire two FastAPI routes that publish what they produce.
 
 ```python
-# myhub/agentid_routes.py
+# myida/agentid_routes.py
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 from agent_id_service_sdk.manifest_signing import (
     build_manifest, sign_manifest, public_key_to_jwk,
 )
-from myhub.config import (
-    HUB_SERVICE_ID, HUB_NAMESPACE, HUB_KID, HUB_PRIVATE_KEY_PEM,
+from myida.config import (
+    IDA_SERVICE_ID, IDA_NAMESPACE, IDA_KID, IDA_PRIVATE_KEY_PEM,
 )
 
 router = APIRouter()
 
 # Cache once at module load — the manifest is static per deployment.
 _PRIVATE_KEY = load_pem_private_key(
-    HUB_PRIVATE_KEY_PEM.encode(), password=None,
+    IDA_PRIVATE_KEY_PEM.encode(), password=None,
 )
-_PUBLIC_JWK = public_key_to_jwk(_PRIVATE_KEY.public_key(), kid=HUB_KID)
+_PUBLIC_JWK = public_key_to_jwk(_PRIVATE_KEY.public_key(), kid=IDA_KID)
 
 _MANIFEST = build_manifest(
-    service_id=HUB_SERVICE_ID,
-    namespace=HUB_NAMESPACE,
-    categories_url=f"{HUB_SERVICE_ID}/.well-known/agent-id-activity-categories",
-    jwks_url=f"{HUB_SERVICE_ID}/.well-known/agent-id-jwks",
+    service_id=IDA_SERVICE_ID,
+    namespace=IDA_NAMESPACE,
+    categories_url=f"{IDA_SERVICE_ID}/.well-known/agent-id-activity-categories",
+    jwks_url=f"{IDA_SERVICE_ID}/.well-known/agent-id-jwks",
 )
-_SIGNED_MANIFEST = sign_manifest(_MANIFEST, private_key=_PRIVATE_KEY, kid=HUB_KID)
+_SIGNED_MANIFEST = sign_manifest(_MANIFEST, private_key=_PRIVATE_KEY, kid=IDA_KID)
 
 
 @router.get("/.well-known/agent-id-jwks")
@@ -115,9 +115,9 @@ async def manifest():
 Mount in your app:
 
 ```python
-# myhub/main.py
+# myida/main.py
 from fastapi import FastAPI
-from myhub.agentid_routes import router as agentid_router
+from myida.agentid_routes import router as agentid_router
 
 app = FastAPI()
 app.include_router(agentid_router)
@@ -128,36 +128,36 @@ app.include_router(agentid_router)
 The same `Verifier` class that signs your activity envelopes (Level 2) also handles inbound JWT verification. Construct one instance and reuse it for both:
 
 ```python
-# myhub/agentid.py
+# myida/agentid.py
 from agent_id_service_sdk import Verifier
-from myhub.config import (
-    HUB_SERVICE_ID, HUB_KID, HUB_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
+from myida.config import (
+    IDA_SERVICE_ID, IDA_KID, IDA_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
 )
 
 verifier = Verifier(
     trusted_providers=TRUSTED_PROVIDERS,
-    audience=HUB_SERVICE_ID,
-    # Hub signing — needed once you reach Level 2 (activity emission).
+    audience=IDA_SERVICE_ID,
+    # IDA signing — needed once you reach Level 2 (activity emission).
     # Safe to wire now even if you haven't enabled emission yet.
-    hub_signing_key=HUB_PRIVATE_KEY_PEM,
-    hub_signing_kid=HUB_KID,
-    hub_service_id=HUB_SERVICE_ID,
+    hub_signing_key=IDA_PRIVATE_KEY_PEM,
+    hub_signing_kid=IDA_KID,
+    hub_service_id=IDA_SERVICE_ID,
 )
 ```
 
-> **Audience under a third-party IdP.** The default model above uses your hub's
+> **Audience under a third-party IdP.** The default model above uses your IDA's
 > `service_id` as the audience (the IdP mints tokens with `aud = service_id`).
 > Some IdPs instead bind the audience to a registered client/app id. For
-> **ModelScope**, `aud` is your hub's registered `client_id` (e.g. `hub_748233`),
+> **ModelScope**, `aud` is your IDA's registered `client_id` (e.g. `hub_748233`),
 > not your `service_id` — set `audience=` to that. See
 > [modelscope-alignment.md](./modelscope-alignment.md).
 
 Wrap it in a FastAPI dependency:
 
 ```python
-# myhub/auth.py
+# myida/auth.py
 from fastapi import Header, HTTPException, Request
-from myhub.agentid import verifier
+from myida.agentid import verifier
 
 
 async def get_agent(
@@ -179,7 +179,7 @@ async def get_agent(
 
 ```python
 from fastapi import Depends, HTTPException
-from myhub.auth import get_agent
+from myida.auth import get_agent
 
 
 @app.post("/some-agent-action")
@@ -188,7 +188,7 @@ async def agent_action(
     agent = Depends(get_agent),
 ):
     # agent.agent_id, agent.principal, agent.issuer, etc. are all verified.
-    # The token's audience matched HUB_SERVICE_ID; the issuer is in your trust list.
+    # The token's audience matched IDA_SERVICE_ID; the issuer is in your trust list.
     if "myservice:write" not in agent.scopes:
         raise HTTPException(403, "scope required: myservice:write")
     # ... your logic ...
@@ -203,7 +203,7 @@ curl https://api.myservice.com/.well-known/agent-id-manifest
 # → eyJhbGciOiJFZERTQSIsImtpZCI6...   (JWS compact form)
 
 curl https://api.myservice.com/.well-known/agent-id-jwks
-# → {"keys":[{"kty":"OKP","crv":"Ed25519","x":"...","kid":"prod-hub-key-1"}]}
+# → {"keys":[{"kty":"OKP","crv":"Ed25519","x":"...","kid":"prod-ida-key-1"}]}
 ```
 
 From any other process, fetching the signed manifest succeeds:
@@ -230,20 +230,20 @@ curl -X POST -H "Authorization: Bearer <bogus-token>" https://api.myservice.com/
 # Token from a trusted IdP, scope satisfied → your handler runs
 ```
 
-That's a Level-1 hub. ~80 lines of integration code, about a week to ship if you're wiring it into a new service. The hard parts (envelope signing, trust list, JWS verification) are all in the SDK; you write configuration and a route dependency.
+That's a Level-1 IDA. ~80 lines of integration code, about a week to ship if you're wiring it into a new service. The hard parts (envelope signing, trust list, JWS verification) are all in the SDK; you write configuration and a route dependency.
 
 ---
 
 ## Level 2 — Activity emission
 
-Goal: in addition to being a hub, your service emits *signed* activity events to an aip-activity service so that audit, reputation, and cross-hub correlation work.
+Goal: in addition to being an IDA, your service emits *signed* activity events to an aip-activity service so that audit, reputation, and cross-IDA correlation work.
 
 ### 2.1 Define your categories
 
 Activity events fall into three tiers (per `design/2026-05-04-activity-discovery.en.md`):
 
 - **Tier-1** — universal lifecycle events: `session.start`, `session.end`, `model.call`, `tool.use`, `auth.deny`, `transfer.value`, etc. Spec-defined; you don't get to redefine these.
-- **Tier-2** — your hub's own categories, namespaced. `myservice.payment_settled`, `myservice.dataset_accessed`. You define the schema.
+- **Tier-2** — your IDA's own categories, namespaced. `myservice.payment_settled`, `myservice.dataset_accessed`. You define the schema.
 - **Tier-3** — opaque events. No schema. Use sparingly; aip-activity stores but doesn't aggregate them.
 
 For Level 2 you need to publish a **categories doc** advertising your Tier-2 entries (Tier-1 needs no advertisement; it's spec-defined).
@@ -253,7 +253,7 @@ For Level 2 you need to publish a **categories doc** advertising your Tier-2 ent
 The categories doc and per-category JSON Schemas are served as **plain JSON** today (the SDK doesn't yet sign them — relying on the manifest's signed `categories_url` as the trust anchor). This will likely tighten in a future spec rev; treat the unsigned form as a current implementation choice, not a permanent guarantee.
 
 ```python
-# myhub/agentid_routes.py (continued)
+# myida/agentid_routes.py (continued)
 from fastapi.responses import JSONResponse
 
 _CATEGORIES_DOC = {
@@ -311,27 +311,27 @@ Schema design tips:
 The same `Verifier` instance you constructed in §1.4 also exposes `report_event()`, which queues an event, signs it as a HubJWS envelope, and posts to the upstream activity service. Add the activity-related options to that constructor:
 
 ```python
-# myhub/agentid.py — extend the §1.4 Verifier
+# myida/agentid.py — extend the §1.4 Verifier
 import os
 from agent_id_service_sdk import Verifier
-from myhub.config import (
-    HUB_SERVICE_ID, HUB_KID, HUB_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
+from myida.config import (
+    IDA_SERVICE_ID, IDA_KID, IDA_PRIVATE_KEY_PEM, TRUSTED_PROVIDERS,
 )
 
-ACTIVITY_ORIGIN = os.environ["MYHUB_ACTIVITY_ORIGIN"]   # e.g. https://activity.dojozero.live
+ACTIVITY_ORIGIN = os.environ["MYIDA_ACTIVITY_ORIGIN"]   # e.g. https://activity.dojozero.live
 
 verifier = Verifier(
     trusted_providers=TRUSTED_PROVIDERS,
-    audience=HUB_SERVICE_ID,
+    audience=IDA_SERVICE_ID,
 
-    # Hub signing — already required at Level 1; reused here for envelopes.
-    hub_signing_key=HUB_PRIVATE_KEY_PEM,
-    hub_signing_kid=HUB_KID,
-    hub_service_id=HUB_SERVICE_ID,
+    # IDA signing — already required at Level 1; reused here for envelopes.
+    hub_signing_key=IDA_PRIVATE_KEY_PEM,
+    hub_signing_kid=IDA_KID,
+    hub_service_id=IDA_SERVICE_ID,
 
     # Activity-specific options:
     activity_endpoint=f"{ACTIVITY_ORIGIN}/agentid/activity",
-    service_name="myhub",
+    service_name="myida",
 
     # Privacy posture (design §5.0). Conservative default; override per category.
     hub_privacy_claim={
@@ -349,8 +349,8 @@ Emit an event from your application code:
 from agent_id_service_sdk import VerifiedAgent
 
 # Build a VerifiedAgent from whoever caused this event. For agent-driven
-# actions, you already have the verified token claims; for hub-internal
-# events, construct a minimal one with the hub's own identity.
+# actions, you already have the verified token claims; for IDA-internal
+# events, construct a minimal one with the IDA's own identity.
 agent = VerifiedAgent(
     agent_id="agentid:qwenpaw.ai:agent_xxx",  # the agent that caused this
     agent_name="...",
@@ -389,7 +389,7 @@ If you see `401 envelope verification failed`, something is mismatched between w
 
 ### 2.5 Tier-1 lifecycle events
 
-Beyond your custom Tier-2 categories, emit Tier-1 events so aip-activity can build cross-hub reputation about your acceptance behavior:
+Beyond your custom Tier-2 categories, emit Tier-1 events so aip-activity can build cross-IDA reputation about your acceptance behavior:
 
 - `session.start` when an agent is admitted (registration, first request, etc.).
 - `session.end` when an agent leaves (unregistration, timeout).
@@ -397,22 +397,22 @@ Beyond your custom Tier-2 categories, emit Tier-1 events so aip-activity can bui
 
 The SDK has helpers for these on the same `Verifier` instance (`report_session_start`, `report_session_end`). Wire them where the corresponding lifecycle events occur in your application — typically in your auth dependency for `auth.deny`, and at agent registration / cleanup paths for the session events.
 
-That's a Level-2 hub. The hard parts (envelope signing, replay cache, JWS construction) are all in the SDK; you write configuration and category schemas.
+That's a Level-2 IDA. The hard parts (envelope signing, replay cache, JWS construction) are all in the SDK; you write configuration and category schemas.
 
 ---
 
 ## Level 3 — Approval gating *(preview)*
 
-Goal: gate high-risk actions through human-in-the-loop approval, where the decision is delegated to the principal's IdP rather than implemented per-hub.
+Goal: gate high-risk actions through human-in-the-loop approval, where the decision is delegated to the principal's IdP rather than implemented per-IDA.
 
 **Status: designed, not yet shipped end-to-end in the SDK.** This section is a placeholder so the level structure is honest about what's coming. Don't build against this surface yet — the wire shape may change.
 
 The design lives in `design/2026-04-23-approval-scenarios.en.md`. Two models are described:
 
-- **Hub-local approvals** — the hub itself runs the approval queue and presents decisions to the principal. Reference implementation in `examples/demo-hub/approve.py` and `hub.py`. Workable today for single-tenant deployments.
-- **IdP-delegated approvals (Model 3)** — the hub forwards the approval request to the principal's IdP, which runs the workflow (presenting it through whatever channel the IdP already owns — corporate SSO, family-account console, bank-grade auth) and returns a signed decision. The Rita/Acme scenario is the canonical example. This is the differentiated mode and the one the Level-3 chapter will document once shipped.
+- **IDA-local approvals** — the IDA itself runs the approval queue and presents decisions to the principal. Reference implementation in `examples/demo-hub/approve.py` and `hub.py`. Workable today for single-tenant deployments.
+- **IdP-delegated approvals (Model 3)** — the IDA forwards the approval request to the principal's IdP, which runs the workflow (presenting it through whatever channel the IdP already owns — corporate SSO, family-account console, bank-grade auth) and returns a signed decision. The Rita/Acme scenario is the canonical example. This is the differentiated mode and the one the Level-3 chapter will document once shipped.
 
-If you have an integration that needs approval gating before the SDK lands the full Model 3 flow, the hub-local model is your option — talk to us so we can scope the right shape together.
+If you have an integration that needs approval gating before the SDK lands the full Model 3 flow, the IDA-local model is your option — talk to us so we can scope the right shape together.
 
 ---
 
@@ -437,13 +437,13 @@ The SDK uses Mozilla's Public Suffix List via `tldextract` to enforce this. Edge
 
 ### Manifest, categories, and JWKS must be on the same origin
 
-All of `service_id/.well-known/*` should resolve to the same hub identity. If you serve categories from a CDN at a different origin, the manifest's signature still verifies (signature is content-bound), but tooling that walks the manifest tree (`manifest.categories_url → fetch`) will fail eTLD+1 ownership checks if the CDN is on a different domain.
+All of `service_id/.well-known/*` should resolve to the same IDA identity. If you serve categories from a CDN at a different origin, the manifest's signature still verifies (signature is content-bound), but tooling that walks the manifest tree (`manifest.categories_url → fetch`) will fail eTLD+1 ownership checks if the CDN is on a different domain.
 
 Workaround: keep `.well-known/*` on the canonical service domain. Static content (per-category JSON Schemas) can live anywhere since they're referenced by absolute URL from the categories doc.
 
 ### Privacy claim semantics
 
-The hub's `hub_privacy_claim` controls how aip-activity processes your events:
+The IDA's `hub_privacy_claim` controls how aip-activity processes your events:
 
 - `default_level: "full"` — full payload stored
 - `default_level: "summary"` — payload reduced to non-sensitive fields per the categories doc's `sensitive_fields`
@@ -454,7 +454,7 @@ The hub's `hub_privacy_claim` controls how aip-activity processes your events:
 
 ### The replay cache is in-memory only
 
-aip-activity dedups envelope `jti`s for 120 seconds. Today this is a single-process in-memory cache. If you horizontally scale aip-activity, you need either sticky sessions per hub origin, or a Redis-backed cache (the SDK supports a `replay_cache` injection point but Redis isn't shipped). For DojoZero's scale this hasn't bitten yet; budget for it if you go multi-instance.
+aip-activity dedups envelope `jti`s for 120 seconds. Today this is a single-process in-memory cache. If you horizontally scale aip-activity, you need either sticky sessions per IDA origin, or a Redis-backed cache (the SDK supports a `replay_cache` injection point but Redis isn't shipped). For DojoZero's scale this hasn't bitten yet; budget for it if you go multi-instance.
 
 ### Categories doc lookup happens once, then cached
 
@@ -462,7 +462,7 @@ aip-activity dedups envelope `jti`s for 120 seconds. Today this is a single-proc
 
 ### Signing key load order
 
-If you bake `_SIGNED_MANIFEST` at module load time (as in the snippet above), changing `HUB_SERVICE_ID` requires a service restart. That's usually fine — these values are deployment-fixed — but don't write code that reads them dynamically expecting the manifest to update.
+If you bake `_SIGNED_MANIFEST` at module load time (as in the snippet above), changing `IDA_SERVICE_ID` requires a service restart. That's usually fine — these values are deployment-fixed — but don't write code that reads them dynamically expecting the manifest to update.
 
 For local dev where you hop between `localhost:8080` and `localhost:8081`, load lazily (function returning a freshly-signed manifest) or restart between switches.
 
@@ -472,17 +472,17 @@ For local dev where you hop between `localhost:8080` and `localhost:8081`, load 
 
 These are real gaps; they'll get their own sections once the underlying work lands:
 
-- **Skill discovery.** A future spec extension lets hubs publish operational instructions (skills) for agents via the manifest. Not implemented today; design discussion in `design/2026-05-04-activity-discovery.en.md` (TODO add §3.4).
+- **Skill discovery.** A future spec extension lets IDAs publish operational instructions (skills) for agents via the manifest. Not implemented today; design discussion in `design/2026-05-04-activity-discovery.en.md` (TODO add §3.4).
 - **Key rotation.** No tooling yet. Rotate by deploying new key alongside old in JWKS, signing new artifacts with new `kid`, retiring old after cache TTLs expire — manual process today.
 - **Non-Python frameworks.** Flask/Django adapters and a sidecar binary for non-Python stacks are deferred. See `design/2026-05-01-deferred-work.md`.
-- **Federated trust (`attested_by`).** The manifest field is reserved but verification flow isn't implemented. Today every hub is its own trust anchor.
+- **Federated trust (`attested_by`).** The manifest field is reserved but verification flow isn't implemented. Today every IDA is its own trust anchor.
 - **Multiple keys in JWKS.** The current SDK keygen produces one key; the JWKS endpoint can publish multiple but the lifecycle (rotation, retirement) isn't tooled.
 
 ---
 
 ## Reference implementation
 
-DojoZero (`packages/dojozero/src/dojozero/gateway/`) is a complete Level-2 hub. Specifically:
+DojoZero (`packages/dojozero/src/dojozero/gateway/`) is a complete Level-2 IDA. Specifically:
 
 - `_hub_publisher.py` — Level 1 (manifest + JWKS signing)
 - `_hub_routes.py` — Level 1 routes mounted on the dashboard server

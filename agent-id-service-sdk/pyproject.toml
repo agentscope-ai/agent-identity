@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-id-service-sdk"
 version = "0.6.0"
-description = "AgentID — Service-side SDK for verifying AI agent JWTs and reporting activity"
+description = "AgentID — Service SDK for verifying ModelScope Agent IdP JWTs"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{name = "Tongyi Lab", email = "yilei.z@alibaba-inc.com"}]
